@@ -30,9 +30,9 @@ def main():
     yield nc.connect({ "servers": args.servers })
 
     def handler(msg):
-        print("[Received: {}] {}".format(msg.subject, msg.data))
+        print("[Received: {0}] {1}".format(msg.subject, msg.data))
 
-    print("Subscribed to '{}'".format(args.subject))
+    print("Subscribed to '{0}'".format(args.subject))
     future = nc.subscribe(args.subject, args.queue, handler)
     sid = future.result()
 

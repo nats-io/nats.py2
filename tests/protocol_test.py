@@ -1,7 +1,11 @@
-import unittest
-import tornado.testing
 import sys
 
+if sys.version_info >= (2, 7):
+     import unittest
+else:
+    import unittest2 as unittest
+
+import tornado.testing
 from nats.io.client import Subscription
 from nats.protocol.parser import *
 

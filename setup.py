@@ -14,6 +14,7 @@ setup(
   scripts=['examples/nats-pub', 'examples/nats-sub'],
   install_requires=[
     'tornado',
+    'unittest2',
   ],
   zip_safe=True,
 )

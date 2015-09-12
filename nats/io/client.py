@@ -86,13 +86,13 @@ class Client(object):
     if self.options["verbose"]:
       result = yield self.io.read_until(_CRLF_)
       if result != OK:
-        raise ErrProtocol("'{}' expected".format(OK_OP))
+        raise ErrProtocol("'{0}' expected".format(OK_OP))
 
     # Parser reads directly from the same IO as the client.
     self._ps.read(self.io)
 
     # Send initial PING. PONG should be parsed by the parsing loop already.
-    yield self.send_command("{}{}".format(PING_OP, _CRLF_))
+    yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
 
   def connect_command(self):
     """
@@ -109,7 +109,7 @@ class Client(object):
       options["user"] = self.options["user"] if "user" in self.options else None
       options["pass"] = self.options["pass"] if "pass" in self.options else None
     args = json.dumps(options, sort_keys=True)
-    return b'{} {}{}'.format(CONNECT_OP, args, _CRLF_)
+    return b'{0} {1}{2}'.format(CONNECT_OP, args, _CRLF_)
 
   @tornado.gen.coroutine
   def send_command(self, cmd):
@@ -124,7 +124,7 @@ class Client(object):
     Sends a PUB command to the server.
     """
     size = len(payload)
-    pub_cmd = "{} {} {} {} {}".format(PUB_OP, subject, reply, size, _CRLF_)
+    pub_cmd = "{0} {1} {2} {3} {4}".format(PUB_OP, subject, reply, size, _CRLF_)
     yield self.send_command(pub_cmd)
     yield self.send_command(payload)
     yield self.send_command(_CRLF_)
@@ -166,7 +166,7 @@ class Client(object):
     sub = Subscription(subject=subject, cb=callback)
     self._subs[sid] = sub
 
-    sub_cmd = "{} {} {}{}{}".format(SUB_OP, subject, queue, sid, _CRLF_)
+    sub_cmd = "{0} {1} {2}{3}{4}".format(SUB_OP, subject, queue, sid, _CRLF_)
     self.send_command(sub_cmd)
     return sid
 
@@ -177,7 +177,7 @@ class Client(object):
     blocks in order to be able to define request/response semantics via pub/sub
     by announcing the server limited interest a priori.
     """
-    unsub_cmd = "{} {} {}{}".format(UNSUB_OP, sid, max, _CRLF_)
+    unsub_cmd = "{0} {1} {2}{3}".format(UNSUB_OP, sid, max, _CRLF_)
     self.send_command(unsub_cmd)
 
   def _process_pong(self):
