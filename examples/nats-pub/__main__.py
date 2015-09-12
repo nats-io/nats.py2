@@ -28,7 +28,7 @@ def main():
     nc = NatsClient()
     yield nc.connect({ "servers": args.servers })
     yield nc.publish(args.subject, args.data)
-    print("Published to '{}'".format(args.subject))
+    print("Published to '{0}'".format(args.subject))
     tornado.ioloop.IOLoop.instance().stop()
 
 if __name__ == '__main__':

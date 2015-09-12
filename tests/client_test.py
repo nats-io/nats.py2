@@ -1,5 +1,9 @@
-import unittest
 import sys
+
+if sys.version_info >= (2, 7):
+     import unittest
+else:
+    import unittest2 as unittest
 
 from nats.io.client import Client, __version__
 from nats.protocol.parser import *
