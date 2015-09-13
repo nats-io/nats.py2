@@ -4,6 +4,7 @@ import tornado.iostream
 import tornado.gen
 
 from nats.io.errors import *
+from nats.io.utils  import *
 from nats.protocol.parser import *
 
 __version__   = b'0.0.1'
