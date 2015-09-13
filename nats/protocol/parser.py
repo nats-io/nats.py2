@@ -11,15 +11,19 @@ SUB_OP          = b'SUB'
 UNSUB_OP        = b'UNSUB'
 PING_OP         = b'PING'
 PONG_OP         = b'PONG'
-_CRLF_          = b'\r\n'
-_SPC_           = b' '
 OK_OP           = b'+OK'
 ERR_OP          = b'-ERR'
+MSG_END         = b'\n'
+_CRLF_          = b'\r\n'
+_SPC_           = b' '
+
 OK              = OK_OP + _CRLF_
 PING            = PING_OP + _CRLF_
 PONG            = PONG_OP + _CRLF_
 CRLF_SIZE       = len(_CRLF_)
-MSG_END         = b'\n'
+OK_SIZE         = len(OK)
+PING_SIZE       = len(PING)
+PONG_SIZE       = len(PONG)
 
 # States
 AWAITING_CONTROL_LINE   = 1
@@ -61,8 +65,9 @@ class Parser(object):
     Parses the wire protocol from NATS for the client
     and dispatches the subscription callbacks.
     """
-    for c in data:
-      self.scratch += c
+    self.scratch += data
+    buf = self.scratch
+    for c in buf:
       if self.state == AWAITING_CONTROL_LINE:
 
         # MSG
@@ -71,9 +76,9 @@ class Parser(object):
 
         # OK
         elif self.scratch.startswith(OK):
-          # No op. But still consume OK from buffer and parse rest of buffer.
-          if len(self.scratch) > len(OK):
-            self.scratch = self.scratch[len(OK):]
+          # No op. But still consume OK from buffer and set next state.
+          if len(self.scratch) > OK_SIZE:
+            self.scratch = self.scratch[OK_SIZE:]
           else:
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
@@ -87,8 +92,8 @@ class Parser(object):
         # PONG
         elif self.scratch.startswith(PONG):
           self.nc._process_pong()
-          if len(self.scratch) > len(PONG):
-            self.scratch = self.scratch[len(PONG):]
+          if len(self.scratch) > PONG_SIZE:
+            self.scratch = self.scratch[PONG_SIZE:]
           else:
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
@@ -97,8 +102,8 @@ class Parser(object):
         # PING
         elif self.scratch.startswith(PING):
           self.nc.send_command(PONG)
-          if len(self.scratch) > len(PING):
-            self.scratch = self.scratch[len(PING):]
+          if len(self.scratch) > PING_SIZE:
+            self.scratch = self.scratch[PING_SIZE:]
           else:
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
@@ -153,7 +158,7 @@ class Parser(object):
         i = self.scratch.find(_CRLF_)
         if i > 0:
           line = self.scratch[:i]
-          _, err = line.split(_SPC_, 1)          
+          _, err = line.split(_SPC_, 1)
           self.nc._process_err(err)
           if len(self.scratch) > i+CRLF_SIZE:
             self.scratch = self.scratch[i+CRLF_SIZE:]
@@ -163,4 +168,4 @@ class Parser(object):
 
 
 class ErrProtocol(Exception):
-    pass
+  pass
