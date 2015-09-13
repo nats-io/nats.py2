@@ -2,10 +2,12 @@ import socket
 import json
 import tornado.iostream
 import tornado.gen
+import tornado.log
 
+from urlparse       import urlparse
 from nats.io.errors import *
 from nats.io.utils  import *
-from nats.protocol.parser import *
+from nats.protocol.parser  import *
 
 __version__   = b'0.0.1'
 __lang__      = b'python2'
@@ -47,11 +49,12 @@ class Client(object):
     self.io = tornado.iostream.IOStream(sock)
 
     # Default options
+    self.options["servers"]  = opts["servers"]  if "servers"  in opts else []
     self.options["verbose"]  = opts["verbose"]  if "verbose"  in opts else False
     self.options["pedantic"] = opts["pedantic"] if "pedantic" in opts else False
 
     # Bind to the first server available in options or default
-    if "servers" not in self.options:
+    if "servers" not in opts:
       self.options["host"] = '127.0.0.1'
       self.options["port"] = 4222
     else:
@@ -67,10 +70,9 @@ class Client(object):
         self.options["pass"] = uri.password
 
     try:
-      result = yield self.io.connect((self.options["host"], self.options["port"]))
-    except socket.error:
-      # TODO: Retry to another server in the cluster
-      raise socket.error("Could not connect to server")
+      yield self.io.connect((self.options["host"], self.options["port"]))
+    except Exception, e:
+      raise ErrServerConnect(e)
 
     # INFO {...}
     # TODO: Check for errors here.
@@ -81,7 +83,7 @@ class Client(object):
     # CONNECT {...}
     yield self.send_command(self.connect_command())
 
-    # Wait for ack or not depending on verbose setting
+    # Wait for ack or not depending on verbose setting.
     if self.options["verbose"]:
       result = yield self.io.read_until(_CRLF_)
       if result != OK:
@@ -209,8 +211,7 @@ class Client(object):
     """
     Bases on the error and dispatches another callback depending on its type.
     """
-    self.nc._err = err
-    pass
+    self._err = err
 
   def last_error(self):
     """

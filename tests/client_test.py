@@ -5,11 +5,18 @@ if sys.version_info >= (2, 7):
 else:
     import unittest2 as unittest
 
+# For async tests
+import tornado.testing
+import tornado.tcpserver
+
+from nats.io.errors import *
 from nats.io.client import Client, __version__
 from nats.io.utils  import new_inbox, INBOX_PREFIX
 from nats.protocol.parser import *
 
-class ClientTest(unittest.TestCase):
+# NOTE: Some tests require a running gnatsd server
+
+class ClientUtilsTest(unittest.TestCase):
 
     def test_default_connect_command(self):
         nc = Client()
@@ -26,9 +33,54 @@ class ClientTest(unittest.TestCase):
          min_expected_len = len(INBOX_PREFIX)
          self.assertTrue(len(inbox) > min_expected_len)
 
-    @unittest.skip("Implement as an async test with a mock server")
-    def test_parse_info(self):
-        data = b'INFO {"server_id":"eec6c3","version":"0.6.6","go":"go1.4.2","host":"0.0.0.0","port":4222,"auth_required":false,"ssl_required":false,"max_payload":1048576}\r\n'
+class ClientTest(tornado.testing.AsyncTestCase):
+
+     @tornado.testing.gen_test
+     def test_parse_info(self):
+          nc = Client()
+          yield nc.connect()
+
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+          self.assertIn("server_id", info_keys)
+          self.assertIn("version", info_keys)
+          self.assertIn("go", info_keys)
+          self.assertIn("host", info_keys)
+          self.assertIn("port", info_keys)
+          self.assertIn("auth_required", info_keys)
+          self.assertIn("ssl_required", info_keys)
+          self.assertIn("max_payload", info_keys)
+
+     @tornado.testing.gen_test
+     def test_connect_verbose(self):
+          nc = Client()
+          yield nc.connect({"verbose": True})
+
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+
+     @tornado.testing.gen_test
+     def test_connect_pedantic(self):
+          nc = Client()
+          yield nc.connect({"pedantic": True})
+
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+
+     @tornado.testing.gen_test
+     def test_auth_connect(self):
+          nc = Client()
+          # TODO: gnatsd -DV --user foo --pass bar -p 4223
+          # TODO: with self.assertRaises(ErrAuthorization):
+          options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
+          yield nc.connect(options)
+          self.assertEqual(True, nc._server_info["auth_required"])
+
+     @tornado.testing.gen_test
+     def test_connect_missing_server(self):
+          nc = Client()
+          with self.assertRaises(ErrServerConnect):
+               yield nc.connect({"servers": ["nats://127.0.0.1:4224"]})
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
