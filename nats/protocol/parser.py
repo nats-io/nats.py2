@@ -1,8 +1,7 @@
-import tornado.gen
-import time
-import datetime
+"""
+NATS network protocol parser.
+"""
 
-# Protocol
 INFO_OP         = b'INFO'
 CONNECT_OP      = b'CONNECT'
 PUB_OP          = b'PUB'
