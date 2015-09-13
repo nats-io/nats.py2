@@ -28,7 +28,6 @@ class Client(object):
     self._ps = Parser(self)
     self._err = None
 
-
   @tornado.gen.coroutine
   def connect(self, opts={}):
     """
@@ -63,7 +62,6 @@ class Client(object):
 
       if uri.username is not None:
         self.options["user"] = uri.username
-
       if uri.password is not None:
         self.options["pass"] = uri.password
 
@@ -106,8 +104,10 @@ class Client(object):
       "version": __version__
     }
     if "auth_required" in self._server_info:
-      options["user"] = self.options["user"] if "user" in self.options else None
-      options["pass"] = self.options["pass"] if "pass" in self.options else None
+      if "user" in self.options:
+         options["user"] = self.options["user"]
+      if "pass" in self.options:
+        options["pass"] = self.options["pass"]
     args = json.dumps(options, sort_keys=True)
     return b'{0} {1}{2}'.format(CONNECT_OP, args, _CRLF_)
 
