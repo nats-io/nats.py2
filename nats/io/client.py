@@ -200,13 +200,13 @@ class Client(object):
     return sid
 
   @tornado.gen.coroutine
-  def unsubscribe(self, sid, max):
+  def unsubscribe(self, sid, limit):
     """
     Sends an UNSUB command to the server.  Unsubscribe is one of the basic building
     blocks in order to be able to define request/response semantics via pub/sub
     by announcing the server limited interest a priori.
     """
-    unsub_cmd = "{0} {1} {2}{3}".format(UNSUB_OP, sid, max, _CRLF_)
+    unsub_cmd = "{0} {1} {2}{3}".format(UNSUB_OP, sid, limit, _CRLF_)
     self.send_command(unsub_cmd)
 
   def _process_pong(self):
