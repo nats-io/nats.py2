@@ -2,7 +2,6 @@ import socket
 import json
 import tornado.iostream
 import tornado.gen
-import tornado.log
 
 from urlparse       import urlparse
 from nats.io.errors import *
@@ -99,6 +98,9 @@ class Client(object):
     """
     Generates a JSON string with the params to be used
     when sending CONNECT to the server.
+
+      ->> CONNECT {"verbose": false, "pedantic": false, "lang": "python" }
+
     """
     options = {
       "verbose":  self.options["verbose"],
@@ -136,6 +138,11 @@ class Client(object):
   def publish(self, subject, payload):
     """
     Publishes a message to the server on the specified subject.
+
+      ->> PUB hello 5
+      ->> MSG_PAYLOAD: world
+      <<- MSG hello 2 5
+
     """
     self._publish(subject, _EMPTY_, payload)
 
@@ -143,20 +150,40 @@ class Client(object):
   def publish_request(self, subject, reply, payload):
     """
     Publishes a message tagging it with a reply subscription
-    which can be used by those receiving the message to respond.
+    which can be used by those receiving the message to respond:
+
+       ->> PUB hello   _INBOX.2007314fe0fcb2cdc2a2914c1 5
+       ->> MSG_PAYLOAD: world
+       <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+
     """
     self._publish(subject, reply, payload)
 
   @tornado.gen.coroutine
-  def request(self, subject, payload):
+  def request(self, subject, payload, callback=None):
     """
     Implements the request/response via pub/sub and an ephemeral subscription
     which will be published with a limited interest of 1 reply.
+
+       ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
+       ->> UNSUB 90 1
+       ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
+       ->> MSG_PAYLOAD: world
+       <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+
     """
-    pass
+    # Publish ephemeral subscription for request/response
+    # and unsubscribe after 1 reply
+    inbox = new_inbox()
+    sid = yield self.subscribe(inbox, _EMPTY_, callback)
+    yield self.unsubscribe(sid, 1)
+    yield self.publish_request(subject, inbox, payload)
+
+    # NOTE: Not necessary in Python 3
+    raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
-  def subscribe(self, subject, queue, callback):
+  def subscribe(self, subject, queue="", callback=None):
     """
     Sends a SUB command to the server.  It takes a queue
     parameter which can be used in case of distributed queues
@@ -165,8 +192,7 @@ class Client(object):
     """
     self._ssid += 1
     sid = self._ssid
-
-    sub = Subscription(subject=subject, cb=callback)
+    sub = Subscription(subject=subject, queue=queue, callback=callback)
     self._subs[sid] = sub
 
     sub_cmd = "{0} {1} {2}{3}{4}".format(SUB_OP, subject, queue, sid, _CRLF_)
@@ -209,7 +235,7 @@ class Client(object):
 
   def _process_err(self, err=None):
     """
-    Bases on the error and dispatches another callback depending on its type.
+    Stores the last received error from the server.
     """
     self._err = err
 
@@ -223,5 +249,6 @@ class Subscription(object):
 
   def __init__(self, **kwargs):
     self.subject  = kwargs["subject"]
-    self.callback = kwargs["cb"]
+    self.queue    = kwargs["queue"]
+    self.callback = kwargs["callback"]
     self.received = 0
