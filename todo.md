@@ -1,9 +1,8 @@
 
-
 - [X] examples: nats-pub, nats-sub
 - [X] tests
-- [ ] request pattern
-- [ ] inboxes
+- [X] request pattern
+- [X] inboxes
 - [ ] correct verbose and pedantic handling
 - [ ] reconnection and state
 - [ ] cluster

@@ -1,9 +1,11 @@
 import socket
 import json
 import tornado.iostream
+import tornado.concurrent
 import tornado.gen
 
 from urlparse       import urlparse
+from datetime       import timedelta
 from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser  import *
@@ -172,18 +174,35 @@ class Client(object):
        <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
-    # Publish ephemeral subscription for request/response
-    # and unsubscribe after 1 reply
     inbox = new_inbox()
     sid = yield self.subscribe(inbox, _EMPTY_, callback)
-    yield self.unsubscribe(sid, 1)
+    yield self.auto_unsubscribe(sid, 1)
     yield self.publish_request(subject, inbox, payload)
-
-    # NOTE: Not necessary in Python 3
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
-  def subscribe(self, subject, queue="", callback=None):
+  def timed_request(self, subject, payload, timeout=5):
+    """
+    Implements the request/response expecting a single response
+    on an inbox with a timeout by using futures instead of callbacks.
+
+       ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
+       ->> UNSUB 90 1
+       ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
+       ->> MSG_PAYLOAD: world
+       <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+
+    """
+    inbox = new_inbox()
+    future = tornado.concurrent.Future()
+    sid = yield self.subscribe(inbox, _EMPTY_, None, future)
+    yield self.auto_unsubscribe(sid, 1)
+    yield self.publish_request(subject, inbox, payload)
+    msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+    raise tornado.gen.Return(msg)
+
+  @tornado.gen.coroutine
+  def subscribe(self, subject="", queue="", callback=None, future=None):
     """
     Sends a SUB command to the server.  It takes a queue
     parameter which can be used in case of distributed queues
@@ -192,7 +211,7 @@ class Client(object):
     """
     self._ssid += 1
     sid = self._ssid
-    sub = Subscription(subject=subject, queue=queue, callback=callback)
+    sub = Subscription(subject=subject, queue=queue, callback=callback, future=future)
     self._subs[sid] = sub
 
     sub_cmd = "{0} {1} {2}{3}{4}".format(SUB_OP, subject, queue, sid, _CRLF_)
@@ -200,7 +219,7 @@ class Client(object):
     return sid
 
   @tornado.gen.coroutine
-  def unsubscribe(self, sid, limit):
+  def auto_unsubscribe(self, sid, limit):
     """
     Sends an UNSUB command to the server.  Unsubscribe is one of the basic building
     blocks in order to be able to define request/response semantics via pub/sub
@@ -229,9 +248,16 @@ class Client(object):
   def _process_msg(self, msg):
     """
     Dispatches the received message to the stored subscription.
+    It first tries to detect whether the message should be dispatched
+    to a passed callback.  In case there was not a callback,
+    then it tries to set the message into a future.
     """
     sub = self._subs[msg.sid]
-    sub.callback(msg)
+
+    if sub.callback is not None:
+      sub.callback(msg)
+    elif sub.future is not None:
+      sub.future.set_result(msg)
 
   def _process_err(self, err=None):
     """
@@ -251,4 +277,5 @@ class Subscription(object):
     self.subject  = kwargs["subject"]
     self.queue    = kwargs["queue"]
     self.callback = kwargs["callback"]
+    self.future   = kwargs["future"]
     self.received = 0

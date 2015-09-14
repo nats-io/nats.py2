@@ -60,7 +60,7 @@ class ProtocolParserTest(unittest.TestCase):
         def payload_test(msg):
           self.assertEqual(msg["data"], expected)
 
-        sub = Subscription(subject="hello", queue=None, callback=payload_test)
+        sub = Subscription(subject="hello", queue=None, callback=payload_test, future=None)
         nc._subs[1] = sub
         ps = Parser(nc)
         data = b'MSG hello 1 world 12\r\n'
