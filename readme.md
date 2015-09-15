@@ -2,7 +2,7 @@
 
 A Python +2.6 async client for the [NATS messaging system](https://nats.io).
 
-## Getting 
+## Getting Started
 
 Only dependency is Tornado so it must be installed first:
 
