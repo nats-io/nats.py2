@@ -1,8 +1,8 @@
-# NATS - Python 2.7 Asynchronous Client
+# NATS - Python 2 Tornado based Client
 
-A Python 2.7 asynchronous client for the [NATS messaging system](https://nats.io).
+A Python +2.6 async client for the [NATS messaging system](https://nats.io).
 
-## Installation
+## Getting 
 
 Only dependency is Tornado so it must be installed first:
 
@@ -18,42 +18,41 @@ cd python-nats
 python setup.py install
 ```
 
-Or via `pip install`:
-
-```
-pip install nats
-```
-
 ## Basic Usage
 
 ```python
 import tornado.ioloop
 import tornado.gen
-import time
-from nats.io.client import Client as NatsClient
+import tornado.concurrent
+from nats.io.client import Client as NATS
+from nats.io.utils  import new_inbox
 
 @tornado.gen.coroutine
-def main():
-    nc = NatsClient()
+def go():
+  nats = NATS()
+  yield nats.connect({"servers": ["nats://127.0.0.1:4222"]})
 
-    # establish connection to the server
-    yield nc.connect({ "verbose": True, "servers": ["nats://127.0.0.1:4222"] })
+  @tornado.gen.coroutine
+  def request_handler(msg):
+    yield nats.publish(msg.reply, "I can help!")
 
-    def help_request(msg):
-        print("[Received]: %s" % msg.data)
-        nc.publish("help.announce", "OK, I can help!")
+  # Simple Async subscriber
+  sid = yield nats.subscribe("help", "", request_handler)
 
-    future = nc.subscribe("help.request", "", help_request)
-    sid = future.result()
+  # Unsubscribing
+  yield nats.auto_unsubscribe(sid, 1)
 
-    loop = tornado.ioloop.IOLoop.instance()
-    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
-    yield nc.publish("help.request", "Need help!")
-    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
-    tornado.ioloop.IOLoop.instance().stop()
+  try:
+    # Requests
+    response = yield nats.timed_request("help", "help me", timeout=1)
+    print("Got:", response.data)
+  except tornado.gen.TimeoutError, e:
+    print("Timeout!", e)
+
+  tornado.ioloop.IOLoop.instance().stop()
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+  tornado.ioloop.IOLoop.instance().run_sync(go)
 ```
 
 ## License
