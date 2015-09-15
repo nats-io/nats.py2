@@ -55,6 +55,22 @@ if __name__ == '__main__':
   tornado.ioloop.IOLoop.instance().run_sync(go)
 ```
 
+## Examples
+
+In this repo there are also included a couple of simple utilities
+for subscribing and publishing messages to NATS:
+
+```sh
+# Make a subscription to 'hello'
+$ python examples/nats-sub hello
+
+Subscribed to 'hello'
+[Received: hello] world
+
+# Send a message to hello
+$ python examples/nats-pub hello -d "world"
+```
+
 ## License
 
 (The MIT License)
