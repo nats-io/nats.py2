@@ -8,7 +8,7 @@
 - [ ] cluster
 - [ ] error callbacks, exceptions
 - [ ] client connection stats
-- [ ] authorization
+- [x] authorization
 - [ ] more thorough test split buffer scenarios (fuzzy testing?)
 - [ ] benchmarks
 - [ ] check len of control line
