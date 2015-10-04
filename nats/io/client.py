@@ -101,7 +101,7 @@ class Client(object):
     Generates a JSON string with the params to be used
     when sending CONNECT to the server.
 
-      ->> CONNECT {"verbose": false, "pedantic": false, "lang": "python" }
+      ->> CONNECT {"verbose": false, "pedantic": false, "lang": "python2" }
 
     """
     options = {
@@ -214,7 +214,7 @@ class Client(object):
     sub = Subscription(subject=subject, queue=queue, callback=callback, future=future)
     self._subs[sid] = sub
 
-    sub_cmd = "{0} {1} {2}{3}{4}".format(SUB_OP, subject, queue, sid, _CRLF_)
+    sub_cmd = "{0} {1} {2} {3}{4}".format(SUB_OP, subject, queue, sid, _CRLF_)
     self.send_command(sub_cmd)
     return sid
 
