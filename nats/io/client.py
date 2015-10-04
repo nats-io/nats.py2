@@ -4,11 +4,11 @@ import tornado.iostream
 import tornado.concurrent
 import tornado.gen
 
-from urlparse       import urlparse
-from datetime       import timedelta
+from urlparse import urlparse
+from datetime import timedelta
 from nats.io.errors import *
 from nats.io.utils  import *
-from nats.protocol.parser  import *
+from nats.protocol.parser import *
 
 __version__   = b'0.0.1'
 __lang__      = b'python2'
@@ -91,7 +91,7 @@ class Client(object):
         raise ErrProtocol("'{0}' expected".format(OK_OP))
 
     # Parser reads directly from the same IO as the client.
-    self._ps.read(self.io)
+    self._ps.read()
 
     # Send initial PING. PONG should be parsed by the parsing loop already.
     yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))

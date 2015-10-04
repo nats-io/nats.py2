@@ -51,13 +51,13 @@ class Parser(object):
     self.needed = 0
     self.msg_arg = {}
 
-  def read(self, io):
+  def read(self, data=''):
     """
     Read loop for gathering bytes from the server in a buffer
     of maximum SCRATCH_SIZE, then received bytes are streamed
     to the parsing callback for processing.
     """
-    io.read_bytes(SCRATCH_SIZE, callback=self.parse, streaming_callback=self.parse, partial=True)
+    self.nc.io.read_bytes(SCRATCH_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
 
   def parse(self, data=''):
     """
