@@ -72,7 +72,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           nc = Client()
           # TODO: gnatsd -DV --user foo --pass bar -p 4223
           # TODO: with self.assertRaises(ErrAuthorization):
-          options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
+          options = {"servers": ["nats://foo:bar@127.0.0.1:4225"]}
           yield nc.connect(options)
           self.assertEqual(True, nc._server_info["auth_required"])
 
@@ -80,7 +80,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
      def test_connect_missing_server(self):
           nc = Client()
           with self.assertRaises(ErrServerConnect):
-               yield nc.connect({"servers": ["nats://127.0.0.1:4224"]})
+               yield nc.connect({"servers": ["nats://127.0.0.1:4226"]})
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
