@@ -21,38 +21,38 @@ python setup.py install
 ## Basic Usage
 
 ```python
-import tornado.ioloop
-import tornado.gen
-import tornado.concurrent
-from nats.io.client import Client as NATS
-from nats.io.utils  import new_inbox
+    import tornado.ioloop
+    import tornado.gen
+    import tornado.concurrent
+    from nats.io.client import Client as NATS
+    from nats.io.utils  import new_inbox
 
-@tornado.gen.coroutine
-def go():
-  nats = NATS()
-  yield nats.connect({"servers": ["nats://127.0.0.1:4222"]})
+    @tornado.gen.coroutine
+    def go():
+      nats = NATS()
+      yield nats.connect({"servers": ["nats://127.0.0.1:4222"]})
 
-  @tornado.gen.coroutine
-  def request_handler(msg):
-    yield nats.publish(msg.reply, "I can help!")
+      @tornado.gen.coroutine
+      def request_handler(msg):
+        yield nats.publish(msg.reply, "I can help!")
 
-  # Simple Async subscriber
-  sid = yield nats.subscribe("help", "", request_handler)
+      # Simple Async subscriber
+      sid = yield nats.subscribe("help", "", request_handler)
 
-  # Unsubscribing
-  yield nats.auto_unsubscribe(sid, 1)
+      # Unsubscribing
+      yield nats.auto_unsubscribe(sid, 1)
 
-  try:
-    # Requests
-    response = yield nats.timed_request("help", "help me", timeout=1)
-    print("Got:", response.data)
-  except tornado.gen.TimeoutError, e:
-    print("Timeout!", e)
+      try:
+        # Requests
+        response = yield nats.timed_request("help", "help me", timeout=1)
+        print("Got:", response.data)
+      except tornado.gen.TimeoutError, e:
+        print("Timeout!", e)
 
-  tornado.ioloop.IOLoop.instance().stop()
+      tornado.ioloop.IOLoop.instance().stop()
 
-if __name__ == '__main__':
-  tornado.ioloop.IOLoop.instance().run_sync(go)
+    if __name__ == '__main__':
+      tornado.ioloop.IOLoop.instance().run_sync(go)
 ```
 
 ## Examples
@@ -61,14 +61,14 @@ In this repo there are also included a couple of simple utilities
 for subscribing and publishing messages to NATS:
 
 ```sh
-# Make a subscription to 'hello'
-$ python examples/nats-sub hello
+    # Make a subscription to 'hello'
+    $ python examples/nats-sub hello
 
-Subscribed to 'hello'
-[Received: hello] world
+    Subscribed to 'hello'
+    [Received: hello] world
 
-# Send a message to hello
-$ python examples/nats-pub hello -d "world"
+    # Send a message to hello
+    $ python examples/nats-pub hello -d "world"
 ```
 
 ## License
