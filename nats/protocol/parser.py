@@ -65,8 +65,7 @@ class Parser(object):
     and dispatches the subscription callbacks.
     """
     self.scratch += data
-    buf = self.scratch
-    for c in buf:
+    for i in self.scratch:
       if self.state == AWAITING_CONTROL_LINE:
 
         # MSG
@@ -90,7 +89,8 @@ class Parser(object):
 
         # PONG
         elif self.scratch.startswith(PONG):
-          self.nc._process_pong()
+          if len(self.nc._pongs) > 0:
+            self.nc._pongs.pop(0)()
           if len(self.scratch) > PONG_SIZE:
             self.scratch = self.scratch[PONG_SIZE:]
           else:

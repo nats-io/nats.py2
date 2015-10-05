@@ -13,6 +13,9 @@ class MockNatsClient:
 
     def __init__(self):
         self._subs = {}
+        self._pongs = []
+        self._pings_outstanding = 0
+        self._pongs_received = 0
         self._server_info = {"max_payload": 1048576, "auth_required": False }
 
     def send_command(self, cmd):

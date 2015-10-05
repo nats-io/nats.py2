@@ -3,7 +3,9 @@ import json
 import tornado.iostream
 import tornado.concurrent
 import tornado.gen
+import tornado.ioloop
 
+from random import shuffle
 from urlparse import urlparse
 from datetime import timedelta
 from nats.io.errors import *
@@ -15,6 +17,10 @@ __lang__      = b'python2'
 _CRLF_        = b'\r\n'
 _SPC_         = b' '
 _EMPTY_       = b''
+
+# Defaults
+DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
+MAX_OUTSTANDING_PINGS = 2
 
 class Client(object):
 
@@ -31,6 +37,12 @@ class Client(object):
     # Parser with state for processing the wire protocol.
     self._ps = Parser(self)
     self._err = None
+
+    # Ping interval to disconnect from unhealthy servers.
+    self._ping_timer = None
+    self._pings_outstanding = 0
+    self._pongs_received = 0
+    self._pongs = []
 
   @tornado.gen.coroutine
   def connect(self, opts={}):
@@ -50,16 +62,21 @@ class Client(object):
     self.io = tornado.iostream.IOStream(sock)
 
     # Default options
+    # TODO: assert instance type of options
     self.options["servers"]  = opts["servers"]  if "servers"  in opts else []
     self.options["verbose"]  = opts["verbose"]  if "verbose"  in opts else False
     self.options["pedantic"] = opts["pedantic"] if "pedantic" in opts else False
+    self.options["ping_interval"] = opts["ping_interval"] if "ping_interval" in opts else DEFAULT_PING_INTERVAL
+    self.options["max_outstanding_pings"] = opts["max_outstanding_pings"] if "max_outstanding_pings" in opts else MAX_OUTSTANDING_PINGS
+    self.options["dont_randomize"] = opts["dont_randomize"] if "dont_randomize" in opts else False
 
     # Bind to the first server available in options or default
-    if "servers" not in opts:
+    if "servers" not in opts or len(self.options["servers"]) < 1:
       self.options["host"] = '127.0.0.1'
       self.options["port"] = 4222
     else:
-      # TODO: Randomize servers option
+      if not self.options["dont_randomize"]:
+        shuffle(self.options["servers"])
       server = self.options["servers"][0]
       uri = urlparse(server)
       self.options["host"] = uri.hostname
@@ -90,11 +107,25 @@ class Client(object):
       if result != OK:
         raise ErrProtocol("'{0}' expected".format(OK_OP))
 
+    # Prepare the ping pong interval callback
+    self._ping_timer = tornado.ioloop.PeriodicCallback(self.send_ping, DEFAULT_PING_INTERVAL)
+    self._ping_timer.start()
+
     # Parser reads directly from the same IO as the client.
     self._ps.read()
 
     # Send initial PING. PONG should be parsed by the parsing loop already.
-    yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
+    yield self.send_ping()
+
+  @tornado.gen.coroutine
+  def send_ping(self):
+    if self._pings_outstanding > self.options["max_outstanding_pings"]:
+      self.io.close()
+      # TODO: reconnect
+    else:
+      self._pings_outstanding += 1
+      self._pongs.append(self._process_pong)
+      yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
 
   def connect_command(self):
     """
@@ -228,22 +259,23 @@ class Client(object):
     unsub_cmd = "{0} {1} {2}{3}".format(UNSUB_OP, sid, limit, _CRLF_)
     self.send_command(unsub_cmd)
 
-  def _process_pong(self):
-    """
-    Sends PING to the server.  This happens soon after CONNECT,
-    and later on periodically by the client.  If the
-    """
-    # TODO: ping outstanding logic
-    # self.send_command(PING)
-    pass
-
   def _process_ping(self):
     """
-    Sends a PONG reply to the server.  The server will be periodically
-    sending a PING, and if the the client does not reply a number of times,
-    it will close the connection sending an `-ERR 'Stale Connection'` error.
+    The server will be periodically sending a PING, and if the the client
+    does not reply a PONG back a number of times, it will close the connection
+    sending an `-ERR 'Stale Connection'` error.
     """
     self.send_command(PONG)
+
+  def _process_pong(self):
+    """
+    The client will be send a PING soon after CONNECT and then periodically
+    to the the server as a failure detector to close connections to unhealthy servers.
+    For each PING the client sends, we will add a respective PONG callback which
+    will be dispatched by the parser upon receving it.
+    """
+    self._pongs_received += 1
+    self._pings_outstanding -= 1
 
   def _process_msg(self, msg):
     """
