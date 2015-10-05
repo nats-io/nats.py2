@@ -3,7 +3,7 @@
 - [X] tests
 - [X] request pattern
 - [X] inboxes
-- [ ] ping/pong interval
+- [X] ping/pong interval
 - [ ] correct verbose and pedantic handling
 - [ ] reconnection and state
 - [ ] cluster
