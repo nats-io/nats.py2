@@ -1,9 +1,10 @@
-"""Exported errors which can be thrown by the NATS client.
+# Copyright 2015 Apcera Inc. All rights reserved.
+
+"""
+Exported errors which can be thrown by the NATS client.
 """
 
 import socket
-import tornado.stack_context
-import contextlib
 
 class ErrAuthorization(Exception):
     pass
@@ -24,6 +25,9 @@ class ErrStaleConnection(Exception):
     pass
 
 class ErrMaxPayload(Exception):
+    pass
+
+class ErrNoServers(Exception):
     pass
 
 class ErrServerConnect(socket.error):

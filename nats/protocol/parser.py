@@ -1,28 +1,30 @@
+# Copyright 2015 Apcera Inc. All rights reserved.
+
 """
 NATS network protocol parser.
 """
 
-INFO_OP         = b'INFO'
-CONNECT_OP      = b'CONNECT'
-PUB_OP          = b'PUB'
-MSG_OP          = b'MSG'
-SUB_OP          = b'SUB'
-UNSUB_OP        = b'UNSUB'
-PING_OP         = b'PING'
-PONG_OP         = b'PONG'
-OK_OP           = b'+OK'
-ERR_OP          = b'-ERR'
-MSG_END         = b'\n'
-_CRLF_          = b'\r\n'
-_SPC_           = b' '
+INFO_OP     = b'INFO'
+CONNECT_OP  = b'CONNECT'
+PUB_OP      = b'PUB'
+MSG_OP      = b'MSG'
+SUB_OP      = b'SUB'
+UNSUB_OP    = b'UNSUB'
+PING_OP     = b'PING'
+PONG_OP     = b'PONG'
+OK_OP       = b'+OK'
+ERR_OP      = b'-ERR'
+MSG_END     = b'\n'
+_CRLF_      = b'\r\n'
+_SPC_       = b' '
 
-OK              = OK_OP + _CRLF_
-PING            = PING_OP + _CRLF_
-PONG            = PONG_OP + _CRLF_
-CRLF_SIZE       = len(_CRLF_)
-OK_SIZE         = len(OK)
-PING_SIZE       = len(PING)
-PONG_SIZE       = len(PONG)
+OK          = OK_OP + _CRLF_
+PING        = PING_OP + _CRLF_
+PONG        = PONG_OP + _CRLF_
+CRLF_SIZE   = len(_CRLF_)
+OK_SIZE     = len(OK)
+PING_SIZE   = len(PING)
+PONG_SIZE   = len(PONG)
 
 # States
 AWAITING_CONTROL_LINE   = 1

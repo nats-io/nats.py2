@@ -76,11 +76,21 @@ class ClientTest(tornado.testing.AsyncTestCase):
           yield nc.connect(options)
           self.assertEqual(True, nc._server_info["auth_required"])
 
+     # @tornado.testing.gen_test
+     # def test_connect_missing_server(self):
+     #      nc = Client()
+     #      with self.assertRaises(ErrServerConnect):
+     #           yield nc.connect({"servers": ["nats://127.0.0.1:4226"]})
+
      @tornado.testing.gen_test
-     def test_connect_missing_server(self):
+     def test_publish(self):
           nc = Client()
-          with self.assertRaises(ErrServerConnect):
-               yield nc.connect({"servers": ["nats://127.0.0.1:4226"]})
+          yield nc.connect({"pedantic": True})
+
+          self.assertEqual(Client.CONNECTED, nc._status)
+
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)

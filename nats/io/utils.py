@@ -1,3 +1,5 @@
+# Copyright 2015 Apcera Inc. All rights reserved.
+
 import random
 
 INBOX_PREFIX = "_INBOX."

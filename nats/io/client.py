@@ -1,34 +1,52 @@
+# Copyright 2015 Apcera Inc. All rights reserved.
+
 import socket
 import json
 import tornado.iostream
 import tornado.concurrent
+import tornado.escape
 import tornado.gen
 import tornado.ioloop
 
 from random import shuffle
 from urlparse import urlparse
-from datetime import timedelta
+from datetime import timedelta, datetime
 from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser import *
 
-__version__   = b'0.0.1'
-__lang__      = b'python2'
-_CRLF_        = b'\r\n'
-_SPC_         = b' '
-_EMPTY_       = b''
+__version__  = b'0.0.1'
+__lang__     = b'python2'
+_CRLF_       = b'\r\n'
+_SPC_        = b' '
+_EMPTY_      = b''
 
-# Defaults
+# Ping interval
 DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS = 2
+DEFAULT_TIMEOUT = 2 * 1000 # in ms
+
+# Reconnection logic
+MAX_RECONNECT_ATTEMPTS = 10
+RECONNECT_TIME_WAIT = 2 * 1000 # in ms
 
 class Client(object):
+
+  DISCONNECTED = 0
+  CONNECTED    = 1
+  CLOSED       = 2
+  RECONNECTING = 3
+  CONNECTING   = 4
 
   def __init__(self):
     self.options = {}
 
     # INFO that we get upon connect from the server.
     self._server_info = {}
+
+    # Client connection state and clustering.
+    self._status = Client.DISCONNECTED
+    self._server_pool = []
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -47,56 +65,97 @@ class Client(object):
   @tornado.gen.coroutine
   def connect(self, opts={}):
     """
-    Establishes an async connection to a NATS servers.
-    The connection can be customized via an optional dictionary:
+    Establishes an async connection to a NATS servers, the connection can be
+    customized via an optional dictionary.
 
-         # NATS cluster usage
-         nc = nats.io.client.Client()
-         yield nc.connect({'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
+       # NATS cluster usage
+       nc = nats.io.client.Client()
+       yield nc.connect({'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
 
-         # If using a secure conn, user and pass are to be passed on the uri
-         yield nc.connect({'servers': ['nats://hello:world@192.168.1.10:4222' })
+       # If using a authentication, user and pass are to be passed on the uri.
+       yield nc.connect({'servers': ['nats://hello:world@192.168.1.10:4222'] })
 
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    self.io = tornado.iostream.IOStream(sock)
 
     # Default options
-    # TODO: assert instance type of options
     self.options["servers"]  = opts["servers"]  if "servers"  in opts else []
     self.options["verbose"]  = opts["verbose"]  if "verbose"  in opts else False
     self.options["pedantic"] = opts["pedantic"] if "pedantic" in opts else False
     self.options["ping_interval"] = opts["ping_interval"] if "ping_interval" in opts else DEFAULT_PING_INTERVAL
     self.options["max_outstanding_pings"] = opts["max_outstanding_pings"] if "max_outstanding_pings" in opts else MAX_OUTSTANDING_PINGS
     self.options["dont_randomize"] = opts["dont_randomize"] if "dont_randomize" in opts else False
+    self.options["allow_reconnect"] = opts["allow_reconnect"] if "allow_reconnect" in opts else True
 
-    # Bind to the first server available in options or default
     if "servers" not in opts or len(self.options["servers"]) < 1:
-      self.options["host"] = '127.0.0.1'
-      self.options["port"] = 4222
+      srv = Srv(urlparse("nats://127.0.0.1:4222"))
+      self._server_pool.append(srv)
     else:
-      if not self.options["dont_randomize"]:
-        shuffle(self.options["servers"])
-      server = self.options["servers"][0]
-      uri = urlparse(server)
-      self.options["host"] = uri.hostname
-      self.options["port"] = uri.port
+      for srv in self.options["servers"]:
+        self._server_pool.append(Srv(urlparse(srv)))
 
-      if uri.username is not None:
-        self.options["user"] = uri.username
-      if uri.password is not None:
-        self.options["pass"] = uri.password
+    # Continue trying to connect until there is an available server
+    # or bail in case there no more available servers.
+    while True:
+      s = self._next_server()
 
-    try:
-      yield self.io.connect((self.options["host"], self.options["port"]))
-    except Exception, e:
-      raise ErrServerConnect(e)
+      # TODO: For the reconnection logic, we need to consider
+      # sleeping for a bit before trying to reconnect too soon to a
+      # server which has failed previously.
+
+      if s is None:
+        raise ErrNoServers
+      try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+        self.io = tornado.iostream.IOStream(sock)
+        yield self.io.connect((s.uri.hostname, s.uri.port))
+        s.did_connect = True
+        self.io.set_close_callback(self.unbind)
+        break
+      except Exception, e:
+        continue
+
+    yield self._process_connect_init()
+    # If no errors, consider to be connected at this point.
+    self._status = Client.CONNECTED
+
+  def unbind(self):
+    """
+    Unbind handles the disconnection from the server and attempts
+    to reconnect depending on the case.
+    """
+    if not self.options["allow_reconnect"]:
+      self._process_disconnect()
+      return
+    if self.is_connected():
+      self._status = Client.RECONNECTING
+
+      if self._ping_timer.is_running():
+        self._ping_timer.stop()
+
+      # TODO: Reconnect logic
+
+  def _process_disconnect(self):
+    """
+    Does cleanup of the client state and tears down the connection.
+    """
+    # TODO: Call disconnected callback
+    # TODO: Remove ping interval timer
+
+  @tornado.gen.coroutine
+  def _process_connect_init(self):
+    """
+    Handles the initial part of the NATS protocol, moving from
+    the CONNECTING to CONNECTED states when establishing a connection
+    with the server.
+    """
+    # TODO: Add readline timeout here upon connecting.
+    self._status = Client.CONNECTING
 
     # INFO {...}
     # TODO: Check for errors here.
     line = yield self.io.read_until(_CRLF_)
     _, args = line.split(INFO_OP + _SPC_, 1)
-    self._server_info = json.loads(args)
+    self._server_info = tornado.escape.json_decode((args))
 
     # CONNECT {...}
     yield self.send_command(self.connect_command())
@@ -107,21 +166,49 @@ class Client(object):
       if result != OK:
         raise ErrProtocol("'{0}' expected".format(OK_OP))
 
-    # Prepare the ping pong interval callback
+    # Prepare the ping pong interval callback.
     self._ping_timer = tornado.ioloop.PeriodicCallback(self.send_ping, DEFAULT_PING_INTERVAL)
     self._ping_timer.start()
 
     # Parser reads directly from the same IO as the client.
     self._ps.read()
 
-    # Send initial PING. PONG should be parsed by the parsing loop already.
+    # Send initial PING.  Reply from server should be handled
+    # by the parsing loop already at this point.
     yield self.send_ping()
+    # TODO: Flush timeout.
+
+  def _next_server(self):
+    """
+    Chooses next available server to connect.
+    """
+    if self.options["dont_randomize"]:
+      server = self.options['servers'].pop(0)
+      self._server_pool.insert(-1, server)
+    else:
+      shuffle(self._server_pool)
+
+    s = None
+    for server in self._server_pool:
+      # TODO: Reset max reconnects with a server after some time?
+      if server.reconnects > MAX_RECONNECT_ATTEMPTS:
+        continue
+      s = server
+
+    return s
 
   @tornado.gen.coroutine
   def send_ping(self):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
+      # TODO: Closing state
+
+      # TODO: Check if we are already reconnecting or should reconnect.
+      self._status = Client.RECONNECTING
+
+      # TODO: Prepare to handle reconnect.
       self.io.close()
-      # TODO: reconnect
+      # TODO: Cancel pings interval.
+      # TODO: Handle reconnect.
     else:
       self._pings_outstanding += 1
       self._pongs.append(self._process_pong)
@@ -154,7 +241,22 @@ class Client(object):
     """
     Flushes a command to the server as a bytes payload.
     """
-    self.io.write(bytes(cmd))
+    try:
+      self.io.write(bytes(cmd))
+    except tornado.iostream.StreamClosedError, e:
+      self._status = Client.CLOSED
+      print("Connection is closed...", e)
+      # TODO: Handle cleaning up state from a closed connection
+      # so that we can try to connect once again.
+
+  def is_closed(self):
+    return self._status == Client.CLOSED
+
+  def is_reconnecting(self):
+    return self._status == Client.RECONNECTING
+
+  def is_connected(self):
+    return self._status == Client.CONNECTED
 
   @tornado.gen.coroutine
   def _publish(self, subject, reply, payload):
@@ -311,3 +413,14 @@ class Subscription(object):
     self.callback = kwargs["callback"]
     self.future   = kwargs["future"]
     self.received = 0
+
+class Srv(object):
+  """
+  Srv is a helper data structure to hold state on the
+  """
+
+  def __init__(self, uri):
+    self.uri = uri
+    self.reconnects = 0
+    self.did_connect = False
+    self.last_attempt = None
