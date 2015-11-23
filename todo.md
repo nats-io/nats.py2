@@ -4,14 +4,16 @@
 - [X] request pattern
 - [X] inboxes
 - [X] ping/pong interval
-- [ ] correct verbose and pedantic handling
-- [ ] reconnection and state
-- [ ] cluster
+- [X] correct verbose and pedantic handling
+- [X] cluster
+- [x] authorization
+- [-] reconnection and state
+- [ ] readings deadline, flush timeout
 - [ ] error callbacks, exceptions
 - [ ] client connection stats
-- [x] authorization
 - [ ] more thorough test split buffer scenarios (fuzzy testing?)
-- [ ] benchmarks
-- [ ] check len of control line
+- [ ] check len of control line in parser
 - [ ] follow size of max payload
-- [ ] readings deadline
+- [ ] TLS
+- [ ] Travis builds and improved tests
+- [ ] benchmarks
