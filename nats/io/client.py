@@ -2,6 +2,7 @@
 
 import socket
 import json
+import time
 import tornado.iostream
 import tornado.concurrent
 import tornado.escape
@@ -28,7 +29,7 @@ DEFAULT_TIMEOUT = 2 * 1000 # in ms
 
 # Reconnection logic
 MAX_RECONNECT_ATTEMPTS = 10
-RECONNECT_TIME_WAIT = 2 * 1000 # in ms
+RECONNECT_TIME_WAIT = 2 # in seconds
 
 class Client(object):
 
@@ -93,109 +94,25 @@ class Client(object):
       for srv in self.options["servers"]:
         self._server_pool.append(Srv(urlparse(srv)))
 
-    # Continue trying to connect until there is an available server
-    # or bail in case there no more available servers.
-    while True:
-      s = self._next_server()
+    s = self._next_server()
+    if s is None:
+      raise ErrNoServers
 
-      # TODO: For the reconnection logic, we need to consider
-      # sleeping for a bit before trying to reconnect too soon to a
-      # server which has failed previously.
-
-      if s is None:
-        raise ErrNoServers
-      try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        self.io = tornado.iostream.IOStream(sock)
-        yield self.io.connect((s.uri.hostname, s.uri.port))
-        s.did_connect = True
-        self.io.set_close_callback(self.unbind)
-        break
-      except Exception, e:
-        continue
+    try:
+      sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+      self.io = tornado.iostream.IOStream(sock)
+      yield self.io.connect((s.uri.hostname, s.uri.port))
+      s.did_connect = True
+      s.last_attempt = datetime.now()
+      self.io.set_close_callback(self._unbind)
+    except Exception, e:
+      yield self._schedule_primary_and_connect()
 
     yield self._process_connect_init()
-    # If no errors, consider to be connected at this point.
+
+    # First time connecting to NATS so if there were no errors,
+    # we can consider to be connected at this point.
     self._status = Client.CONNECTED
-
-  def unbind(self):
-    """
-    Unbind handles the disconnection from the server and attempts
-    to reconnect depending on the case.
-    """
-    if not self.options["allow_reconnect"]:
-      self._process_disconnect()
-      return
-    if self.is_connected():
-      self._status = Client.RECONNECTING
-
-      if self._ping_timer.is_running():
-        self._ping_timer.stop()
-
-      # TODO: Reconnect logic
-
-  def _process_disconnect(self):
-    """
-    Does cleanup of the client state and tears down the connection.
-    """
-    # TODO: Call disconnected callback
-    # TODO: Remove ping interval timer
-
-  @tornado.gen.coroutine
-  def _process_connect_init(self):
-    """
-    Handles the initial part of the NATS protocol, moving from
-    the CONNECTING to CONNECTED states when establishing a connection
-    with the server.
-    """
-    # TODO: Add readline timeout here upon connecting.
-    self._status = Client.CONNECTING
-
-    # INFO {...}
-    # TODO: Check for errors here.
-    line = yield self.io.read_until(_CRLF_)
-    _, args = line.split(INFO_OP + _SPC_, 1)
-    self._server_info = tornado.escape.json_decode((args))
-
-    # CONNECT {...}
-    yield self.send_command(self.connect_command())
-
-    # Wait for ack or not depending on verbose setting.
-    if self.options["verbose"]:
-      result = yield self.io.read_until(_CRLF_)
-      if result != OK:
-        raise ErrProtocol("'{0}' expected".format(OK_OP))
-
-    # Prepare the ping pong interval callback.
-    self._ping_timer = tornado.ioloop.PeriodicCallback(self.send_ping, DEFAULT_PING_INTERVAL)
-    self._ping_timer.start()
-
-    # Parser reads directly from the same IO as the client.
-    self._ps.read()
-
-    # Send initial PING.  Reply from server should be handled
-    # by the parsing loop already at this point.
-    yield self.send_ping()
-    # TODO: Flush timeout.
-
-  def _next_server(self):
-    """
-    Chooses next available server to connect.
-    """
-    if self.options["dont_randomize"]:
-      server = self.options['servers'].pop(0)
-      self._server_pool.insert(-1, server)
-    else:
-      shuffle(self._server_pool)
-
-    s = None
-    for server in self._server_pool:
-      # TODO: Reset max reconnects with a server after some time?
-      if server.reconnects > MAX_RECONNECT_ATTEMPTS:
-        continue
-      s = server
-
-    return s
 
   @tornado.gen.coroutine
   def send_ping(self):
@@ -245,7 +162,6 @@ class Client(object):
       self.io.write(bytes(cmd))
     except tornado.iostream.StreamClosedError, e:
       self._status = Client.CLOSED
-      print("Connection is closed...", e)
       # TODO: Handle cleaning up state from a closed connection
       # so that we can try to connect once again.
 
@@ -392,6 +308,128 @@ class Client(object):
       sub.callback(msg)
     elif sub.future is not None:
       sub.future.set_result(msg)
+
+
+  @tornado.gen.coroutine
+  def _process_connect_init(self):
+    """
+    Handles the initial part of the NATS protocol, moving from
+    the CONNECTING to CONNECTED states when establishing a connection
+    with the server.
+    """
+    # TODO: Add readline timeout here upon connecting.
+    self._status = Client.CONNECTING
+
+    # INFO {...}
+    # TODO: Check for errors here.
+    line = yield self.io.read_until(_CRLF_)
+    _, args = line.split(INFO_OP + _SPC_, 1)
+    self._server_info = tornado.escape.json_decode((args))
+
+    # CONNECT {...}
+    yield self.send_command(self.connect_command())
+
+    # Wait for ack or not depending on verbose setting.
+    if self.options["verbose"]:
+      result = yield self.io.read_until(_CRLF_)
+      if result != OK:
+        raise ErrProtocol("'{0}' expected".format(OK_OP))
+
+    # Prepare the ping pong interval callback.
+    self._ping_timer = tornado.ioloop.PeriodicCallback(self.send_ping, DEFAULT_PING_INTERVAL)
+    self._ping_timer.start()
+
+    # Parser reads directly from the same IO as the client.
+    self._ps.read()
+
+    # Send initial PING.  Reply from server should be handled
+    # by the parsing loop already at this point.
+    yield self.send_ping()
+    # TODO: Flush timeout.
+
+  def _next_server(self):
+    """
+    Chooses next available server to connect.
+    """
+    if self.options["dont_randomize"]:
+      server = self.options['servers'].pop(0)
+      self._server_pool.insert(-1, server)
+    else:
+      shuffle(self._server_pool)
+
+    s = None
+    for server in self._server_pool:
+      # TODO: Reset max reconnects with a server after some time?
+      if server.reconnects > MAX_RECONNECT_ATTEMPTS:
+        continue
+      s = server
+
+    return s
+
+  @tornado.gen.coroutine
+  def _unbind(self):
+    """
+    Unbind handles the disconnection from the server then
+    attempts to reconnect if `allow_reconnect' is enabled.
+    """
+    if not self.options["allow_reconnect"]:
+      self._process_disconnect()
+      return
+    if self.is_connected():
+      self._status = Client.RECONNECTING
+
+      if self._ping_timer.is_running():
+        self._ping_timer.stop()
+
+      while True:
+        try:
+          yield self._schedule_primary_and_connect()
+          break
+        except ErrNoServers:
+          self._process_disconnect()
+
+      yield self._process_connect_init()
+      # TODO: Replay all the subscriptions.
+      # TODO: Flush all the pending bytes.
+      self._status = Client.CONNECTED
+
+  def _process_disconnect(self):
+    """
+    Does cleanup of the client state and tears down the connection.
+    """
+    # TODO: Call disconnected callback
+    # TODO: Remove ping interval timer
+    # TODO: Close io
+
+  @tornado.gen.coroutine
+  def _schedule_primary_and_connect(self):
+    """
+    Attempts to connect to an available server.
+    """
+    while True:
+      s = self._next_server()
+      if s is None:
+        raise ErrNoServers
+      s.reconnects += 1
+      s.last_attempt = datetime.now()
+
+      # For the reconnection logic, we need to consider
+      # sleeping for a bit before trying to reconnect too soon to a
+      # server which has failed previously.
+      l = tornado.ioloop.IOLoop.instance()
+      yield tornado.gen.Task(l.add_timeout, time.time() + RECONNECT_TIME_WAIT)
+      try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+        self.io = tornado.iostream.IOStream(sock)
+        yield self.io.connect((s.uri.hostname, s.uri.port))
+        s.did_connect = True
+        self.io.set_close_callback(self._unbind)
+        return
+      except Exception, e:
+        # Continue trying to connect until there is an available server
+        # or bail in case there are no more available servers.
+        self._status = Client.RECONNECTING
+        continue
 
   def _process_err(self, err=None):
     """
