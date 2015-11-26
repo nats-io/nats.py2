@@ -22,12 +22,12 @@ _CRLF_       = b'\r\n'
 _SPC_        = b' '
 _EMPTY_      = b''
 
-# Ping interval
+# Ping interval.
 DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS = 2
 DEFAULT_TIMEOUT = 2 * 1000 # in ms
 
-# Reconnection logic
+# Reconnection logic.
 MAX_RECONNECT_ATTEMPTS = 10
 RECONNECT_TIME_WAIT = 2 # in seconds
 
@@ -46,8 +46,10 @@ class Client(object):
     self._server_info = {}
 
     # Client connection state and clustering.
+    self._socket = None
     self._status = Client.DISCONNECTED
     self._server_pool = []
+    self._pending_bytes = ''
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -71,10 +73,10 @@ class Client(object):
 
        # NATS cluster usage
        nc = nats.io.client.Client()
-       yield nc.connect({'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
+       yield nc.connect({ 'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
 
        # If using a authentication, user and pass are to be passed on the uri.
-       yield nc.connect({'servers': ['nats://hello:world@192.168.1.10:4222'] })
+       yield nc.connect({ 'servers': ['nats://hello:world@192.168.1.10:4222'] })
 
     """
 
@@ -99,15 +101,11 @@ class Client(object):
       raise ErrNoServers
 
     try:
-      sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-      self.io = tornado.iostream.IOStream(sock)
-      yield self.io.connect((s.uri.hostname, s.uri.port))
-      s.did_connect = True
+      yield self._server_connect(s)
       s.last_attempt = datetime.now()
       self.io.set_close_callback(self._unbind)
     except Exception, e:
       yield self._schedule_primary_and_connect()
-
     yield self._process_connect_init()
 
     # First time connecting to NATS so if there were no errors,
@@ -115,15 +113,25 @@ class Client(object):
     self._status = Client.CONNECTED
 
   @tornado.gen.coroutine
+  def _server_connect(self, s):
+    """
+    Sets up a TCP connection to the server.
+    """
+    self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self._socket.setblocking(0)
+    self._socket.settimeout(5.0)
+    self.io = tornado.iostream.IOStream(self._socket)
+    yield self.io.connect((s.uri.hostname, s.uri.port))
+
+  @tornado.gen.coroutine
   def send_ping(self):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
+      self._unbind()
       # TODO: Closing state
-
       # TODO: Check if we are already reconnecting or should reconnect.
-      self._status = Client.RECONNECTING
-
+      # self._status = Client.RECONNECTING
       # TODO: Prepare to handle reconnect.
-      self.io.close()
+      # self.io.close()
       # TODO: Cancel pings interval.
       # TODO: Handle reconnect.
     else:
@@ -159,11 +167,15 @@ class Client(object):
     Flushes a command to the server as a bytes payload.
     """
     try:
-      self.io.write(bytes(cmd))
+      yield self.io.write(bytes(cmd))
     except tornado.iostream.StreamClosedError, e:
-      self._status = Client.CLOSED
-      # TODO: Handle cleaning up state from a closed connection
-      # so that we can try to connect once again.
+      # There should be a better mechanism but Write to the pending buffer
+      # instead for now which will then be flushed once we reconnect.
+      self._pending_bytes += bytes(cmd)
+      if not self._status == Client.RECONNECTING:
+        yield self._unbind()
+        # TODO: Handle cleaning up state from a closed connection
+        # so that we can try to connect once again.
 
   def is_closed(self):
     return self._status == Client.CLOSED
@@ -174,16 +186,14 @@ class Client(object):
   def is_connected(self):
     return self._status == Client.CONNECTED
 
-  @tornado.gen.coroutine
   def _publish(self, subject, reply, payload):
     """
-    Sends a PUB command to the server.
+    Sends a PUB command to the server.  We avoid using tornado for these
+    writes in order to increase performance.
     """
     size = len(payload)
-    pub_cmd = "{0} {1} {2} {3} {4}".format(PUB_OP, subject, reply, size, _CRLF_)
-    yield self.send_command(pub_cmd)
-    yield self.send_command(payload)
-    yield self.send_command(_CRLF_)
+    pub_cmd = "{0} {1} {2} {3} {4}{5}{6}".format(PUB_OP, subject, reply, size, _CRLF_, payload, _CRLF_)
+    self._socket.sendall(pub_cmd)
 
   @tornado.gen.coroutine
   def publish(self, subject, payload):
@@ -253,19 +263,24 @@ class Client(object):
   @tornado.gen.coroutine
   def subscribe(self, subject="", queue="", callback=None, future=None):
     """
-    Sends a SUB command to the server.  It takes a queue
-    parameter which can be used in case of distributed queues
-    or left empty if it is not the case, and a callback that
-    will be dispatched message for processing them.
+    Sends a SUB command to the server. Takes a queue parameter which can be used
+    in case of distributed queues or left empty if it is not the case, and a callback
+    that will be dispatched message for processing them.
     """
     self._ssid += 1
     sid = self._ssid
     sub = Subscription(subject=subject, queue=queue, callback=callback, future=future)
     self._subs[sid] = sub
+    yield self._subscribe(sub, sid)
+    raise tornado.gen.Return(sid)
 
-    sub_cmd = "{0} {1} {2} {3}{4}".format(SUB_OP, subject, queue, sid, _CRLF_)
+  @tornado.gen.coroutine
+  def _subscribe(self, sub, ssid):
+    """
+    Generates a SUB command given a Subscription and the subject sequence id.
+    """
+    sub_cmd = "{0} {1} {2} {3}{4}".format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
     self.send_command(sub_cmd)
-    return sid
 
   @tornado.gen.coroutine
   def auto_unsubscribe(self, sid, limit):
@@ -383,23 +398,20 @@ class Client(object):
 
       while True:
         try:
+          self.io.close()
           yield self._schedule_primary_and_connect()
           break
         except ErrNoServers:
           self._process_disconnect()
 
       yield self._process_connect_init()
-      # TODO: Replay all the subscriptions.
-      # TODO: Flush all the pending bytes.
-      self._status = Client.CONNECTED
 
-  def _process_disconnect(self):
-    """
-    Does cleanup of the client state and tears down the connection.
-    """
-    # TODO: Call disconnected callback
-    # TODO: Remove ping interval timer
-    # TODO: Close io
+      # Replay all the subscriptions in case there were some.
+      for ssid, sub in self._subs.items():
+        yield self._subscribe(sub, ssid)
+
+      # TODO: Flush all the pending bytes upon reconnect.
+      self._status = Client.CONNECTED
 
   @tornado.gen.coroutine
   def _schedule_primary_and_connect(self):
@@ -416,13 +428,12 @@ class Client(object):
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect too soon to a
       # server which has failed previously.
-      l = tornado.ioloop.IOLoop.instance()
-      yield tornado.gen.Task(l.add_timeout, time.time() + RECONNECT_TIME_WAIT)
+      yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout, time.time() + RECONNECT_TIME_WAIT)
       try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        self.io = tornado.iostream.IOStream(sock)
-        yield self.io.connect((s.uri.hostname, s.uri.port))
-        s.did_connect = True
+        yield self._server_connect(s)
+
+        # Reset number of reconnects upon successful connection
+        s.reconnects = 0
         self.io.set_close_callback(self._unbind)
         return
       except Exception, e:
@@ -430,6 +441,15 @@ class Client(object):
         # or bail in case there are no more available servers.
         self._status = Client.RECONNECTING
         continue
+
+  def _process_disconnect(self):
+    """
+    Does cleanup of the client state and tears down the connection.
+    """
+    # TODO: Call disconnected callback
+    # TODO: Remove ping interval timer
+    # TODO: Close io
+    # TODO: Set to close
 
   def _process_err(self, err=None):
     """
@@ -460,5 +480,4 @@ class Srv(object):
   def __init__(self, uri):
     self.uri = uri
     self.reconnects = 0
-    self.did_connect = False
     self.last_attempt = None
