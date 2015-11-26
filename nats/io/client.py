@@ -124,7 +124,7 @@ class Client(object):
     yield self.io.connect((s.uri.hostname, s.uri.port))
 
   @tornado.gen.coroutine
-  def send_ping(self):
+  def _send_ping(self, future=tornado.concurrent.Future()):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
       self._unbind()
       # TODO: Closing state
@@ -136,7 +136,7 @@ class Client(object):
       # TODO: Handle reconnect.
     else:
       self._pings_outstanding += 1
-      self._pongs.append(self._process_pong)
+      self._pongs.append(future)
       yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
 
   def connect_command(self):
@@ -218,6 +218,22 @@ class Client(object):
 
     """
     self._publish(subject, reply, payload)
+
+  @tornado.gen.coroutine
+  def flush(self):
+    """
+    Flush will perform a round trip to the server and return when it
+    receives the internal reply.
+    """
+    yield self._flush_timeout()
+
+  @tornado.gen.coroutine
+  def _flush_timeout(self,timeout=60):
+    """
+    """
+    future = tornado.concurrent.Future()
+    yield self._send_ping(future)
+    yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
 
   @tornado.gen.coroutine
   def request(self, subject, payload, callback=None):
@@ -306,6 +322,8 @@ class Client(object):
     For each PING the client sends, we will add a respective PONG callback which
     will be dispatched by the parser upon receving it.
     """
+    future = self._pongs.pop(0)
+    future.set_result(True)
     self._pongs_received += 1
     self._pings_outstanding -= 1
 
@@ -350,7 +368,7 @@ class Client(object):
         raise ErrProtocol("'{0}' expected".format(OK_OP))
 
     # Prepare the ping pong interval callback.
-    self._ping_timer = tornado.ioloop.PeriodicCallback(self.send_ping, DEFAULT_PING_INTERVAL)
+    self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, DEFAULT_PING_INTERVAL)
     self._ping_timer.start()
 
     # Parser reads directly from the same IO as the client.
@@ -358,8 +376,7 @@ class Client(object):
 
     # Send initial PING.  Reply from server should be handled
     # by the parsing loop already at this point.
-    yield self.send_ping()
-    # TODO: Flush timeout.
+    yield self.flush()
 
   def _next_server(self):
     """
