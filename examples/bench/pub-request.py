@@ -44,15 +44,19 @@ def go():
 
     for i in range(nc.max_messages):
         try:
-            nc.nc.publish("help.socket.{0}".format(i), line)
+            yield nc.nc.publish_request("help.io.{0}".format(i), "", line)
             nc.total_written += 1
+            # yield nc.nc.flush()
         except socket.error:
+            # Skip.
             continue
 
     nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
     rate = nc.total_written / duration
+    tornado.ioloop.IOLoop.instance().stop()
     print("|{0}|{1}|{2}|{3}|{4}|".format(max_messages, bytesize, duration, rate, nc.total_written))
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(go)
+    go()
+    tornado.ioloop.IOLoop.instance().start()

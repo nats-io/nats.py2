@@ -22,7 +22,7 @@ def go():
 
     nc = Client()
     nc.socket = s
-    nc.socket.connect(("127.0.0.1", 4222))
+    nc.socket.connect(("127.0.0.1", 4225))
     nc.socket.sendall("CONNECT {\"lang\":\"raw-python\"}\r\n")
 
     try:
