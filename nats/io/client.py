@@ -195,7 +195,6 @@ class Client(object):
     pub_cmd = "{0} {1} {2} {3} {4}{5}{6}".format(PUB_OP, subject, reply, size, _CRLF_, payload, _CRLF_)
     self._socket.sendall(pub_cmd)
 
-  @tornado.gen.coroutine
   def publish(self, subject, payload):
     """
     Publishes a message to the server on the specified subject.
