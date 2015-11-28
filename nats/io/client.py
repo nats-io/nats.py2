@@ -3,6 +3,7 @@
 import socket
 import json
 import time
+import io
 import tornado.iostream
 import tornado.concurrent
 import tornado.escape
@@ -16,7 +17,7 @@ from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser import *
 
-__version__  = b'0.0.1'
+__version__  = b'0.1.0'
 __lang__     = b'python2'
 _CRLF_       = b'\r\n'
 _SPC_        = b' '
@@ -26,6 +27,9 @@ _EMPTY_      = b''
 DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS = 2
 DEFAULT_TIMEOUT = 2 * 1000 # in ms
+
+# TODO: Not used right now.
+# DEFAULT_BUFFER_SIZE = 32768
 
 # Reconnection logic.
 MAX_RECONNECT_ATTEMPTS = 10
@@ -50,6 +54,7 @@ class Client(object):
     self._status = Client.DISCONNECTED
     self._server_pool = []
     self._pending_bytes = ''
+    self._bw = None
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -82,6 +87,8 @@ class Client(object):
 
     # Default options
     self.options["servers"]  = opts["servers"]  if "servers"  in opts else []
+
+    # TODO: Handle acks similar to pongs?
     self.options["verbose"]  = opts["verbose"]  if "verbose"  in opts else False
     self.options["pedantic"] = opts["pedantic"] if "pedantic" in opts else False
     self.options["ping_interval"] = opts["ping_interval"] if "ping_interval" in opts else DEFAULT_PING_INTERVAL
@@ -106,6 +113,8 @@ class Client(object):
       self.io.set_close_callback(self._unbind)
     except Exception, e:
       yield self._schedule_primary_and_connect()
+
+    self._bw = BufferedWriter(self)
     yield self._process_connect_init()
 
     # First time connecting to NATS so if there were no errors,
@@ -133,11 +142,11 @@ class Client(object):
       # TODO: Prepare to handle reconnect.
       # self.io.close()
       # TODO: Cancel pings interval.
-      # TODO: Handle reconnect.
     else:
       self._pings_outstanding += 1
       self._pongs.append(future)
-      yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
+      self.send_command("{0}{1}".format(PING_OP, _CRLF_))
+      self._bw.flush()
 
   def connect_command(self):
     """
@@ -166,42 +175,45 @@ class Client(object):
     """
     Flushes a command to the server as a bytes payload.
     """
-    try:
-      yield self.io.write(bytes(cmd))
-    except tornado.iostream.StreamClosedError, e:
-      # There should be a better mechanism but Write to the pending buffer
-      # instead for now which will then be flushed once we reconnect.
-      self._pending_bytes += bytes(cmd)
-      if not self._status == Client.RECONNECTING:
-        yield self._unbind()
-        # TODO: Handle cleaning up state from a closed connection
-        # so that we can try to connect once again.
-
-  def is_closed(self):
-    return self._status == Client.CLOSED
-
-  def is_reconnecting(self):
-    return self._status == Client.RECONNECTING
-
-  def is_connected(self):
-    return self._status == Client.CONNECTED
+    self._bw.write(cmd)
 
   def _publish(self, subject, reply, payload):
-    """
-    Sends a PUB command to the server.  We avoid using tornado for these
-    writes in order to increase performance.
-    """
-    size = len(payload)
-    pub_cmd = "{0} {1} {2} {3} {4}{5}{6}".format(PUB_OP, subject, reply, size, _CRLF_, payload, _CRLF_)
-    self._socket.sendall(pub_cmd)
+
+    # TODO: Check that we are still connected.
+    # TODO: In case there has been an error just return the error as well.
+    if self._err != None:
+      return self._err
+
+    pub_args = "{0} {1} {2} {3} {4}".format(PUB_OP, subject, reply, len(payload), _CRLF_)
+
+    # TODO: Check errors here.
+    self._bw.write(pub_args)
+    self._bw.write(payload)
+    self._bw.write(_CRLF_)
+
+    # TODO: Use future for flusher to emit the contents
+    # rather than calling directly all the time.
+    self._bw.flush()
 
   def publish(self, subject, payload):
     """
-    Publishes a message to the server on the specified subject.
+    Sends a PUB command to the server on the specified subject.
 
       ->> PUB hello 5
       ->> MSG_PAYLOAD: world
       <<- MSG hello 2 5
+
+    """
+    self._publish(subject, _EMPTY_, payload)
+
+  @tornado.gen.coroutine
+  def publish_coroutine(self, subject, payload):
+    """
+    Sends a PUB command to the server on the specified subject using a coroutine.
+
+       ->> PUB hello    5
+       ->> MSG_PAYLOAD: world
+       <<- MSG hello 2  5
 
     """
     self._publish(subject, _EMPTY_, payload)
@@ -230,9 +242,12 @@ class Client(object):
   @tornado.gen.coroutine
   def _flush_timeout(self,timeout=60):
     """
+    Takes a timeout and sets up a future which will be return
+    once the server responds back.
     """
     future = tornado.concurrent.Future()
     yield self._send_ping(future)
+    # TODO: Maybe should return value of resulting future (True, once pong is received).
     yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
 
   @tornado.gen.coroutine
@@ -341,7 +356,6 @@ class Client(object):
     elif sub.future is not None:
       sub.future.set_result(msg)
 
-
   @tornado.gen.coroutine
   def _process_connect_init(self):
     """
@@ -359,13 +373,8 @@ class Client(object):
     self._server_info = tornado.escape.json_decode((args))
 
     # CONNECT {...}
-    yield self.send_command(self.connect_command())
-
-    # Wait for ack or not depending on verbose setting.
-    if self.options["verbose"]:
-      result = yield self.io.read_until(_CRLF_)
-      if result != OK:
-        raise ErrProtocol("'{0}' expected".format(OK_OP))
+    # TODO: Could also just write and flush I think...
+    yield self.io.write(self.connect_command())
 
     # Prepare the ping pong interval callback.
     self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, DEFAULT_PING_INTERVAL)
@@ -374,7 +383,8 @@ class Client(object):
     # Parser reads directly from the same IO as the client.
     self._ps.read()
 
-    # Send initial PING.  Reply from server should be handled
+    # Send a PING expecting a pong meaning that the server has processed
+    # all messages we have sent this far.  Reply from server should be handled
     # by the parsing loop already at this point.
     yield self.flush()
 
@@ -396,6 +406,15 @@ class Client(object):
       s = server
 
     return s
+
+  def is_closed(self):
+    return self._status == Client.CLOSED
+
+  def is_reconnecting(self):
+    return self._status == Client.RECONNECTING
+
+  def is_connected(self):
+    return self._status == Client.CONNECTED
 
   @tornado.gen.coroutine
   def _unbind(self):
@@ -444,7 +463,7 @@ class Client(object):
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect too soon to a
       # server which has failed previously.
-      yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout, time.time() + RECONNECT_TIME_WAIT)
+      yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout, timedelta(seconds=RECONNECT_TIME_WAIT))
       try:
         yield self._server_connect(s)
 
@@ -462,22 +481,16 @@ class Client(object):
     """
     Does cleanup of the client state and tears down the connection.
     """
+    # TODO: Set to DISCONNECTED state
     # TODO: Call disconnected callback
     # TODO: Remove ping interval timer
-    # TODO: Close io
-    # TODO: Set to close
+    # TODO: Close io if not done already
 
   def _process_err(self, err=None):
     """
     Stores the last received error from the server.
     """
     self._err = err
-
-  def last_error(self):
-    """
-    Returns the last processed error from the client.
-    """
-    return self._err
 
 class Subscription(object):
 
@@ -490,10 +503,28 @@ class Subscription(object):
 
 class Srv(object):
   """
-  Srv is a helper data structure to hold state on the
+  Srv is a helper data structure to hold state of a server.
   """
-
   def __init__(self, uri):
     self.uri = uri
     self.reconnects = 0
     self.last_attempt = None
+
+class BufferedWriter(io.BufferedWriter):
+  """
+  BufferedWriter is a simple wrapper around the IO to avoid
+  doing many syscalls when handling writes.
+  TODO: Needs to be improved...
+  """
+  def __init__(self, nc):
+    self.buf = b''
+    self.nc = nc
+
+  def write(self, b):
+    self.buf += b
+
+  def flush(self):
+    buf = self.buf
+    buf_size = len(buf)
+    self.nc.io.write(self.buf)
+    self.buf = self.buf[buf_size:]

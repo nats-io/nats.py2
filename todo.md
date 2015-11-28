@@ -6,14 +6,16 @@
 - [X] ping/pong interval
 - [X] correct verbose and pedantic handling
 - [X] cluster
-- [x] authorization
-- [-] reconnection and state
-- [ ] readings deadline, flush timeout
+- [X] authorization
+- [X] reconnection and state
+- [ ] pending data buffering on reconnect
+- [ ] buffered output flusher, right now too simple
+- [X] readings deadline, flush timeout
+- [X] more thorough test split buffer scenarios
+- [X] benchmarks
 - [ ] error callbacks, exceptions
 - [ ] client connection stats
-- [ ] more thorough test split buffer scenarios (fuzzy testing?)
 - [ ] check len of control line in parser
 - [ ] follow size of max payload
 - [ ] TLS
 - [ ] Travis builds and improved tests
-- [ ] benchmarks
