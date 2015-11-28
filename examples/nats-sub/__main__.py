@@ -19,7 +19,7 @@ def main():
 
     # e.g. nats-sub hello -s nats://127.0.0.1:4222
     parser.add_argument('subject', default='', nargs='?')
-    parser.add_argument('-s', '--servers', default=["nats://127.0.0.1:4222"], action='append')
+    parser.add_argument('-s', '--servers', default=[], action='append')
     parser.add_argument('-q', '--queue', default="")
 
     # Parse!
@@ -27,7 +27,10 @@ def main():
 
     # Create client and connect to server
     nc = NatsClient()
-    yield nc.connect({ "servers": args.servers })
+    servers = args.servers
+    if len(args.servers) < 1:
+      servers = ["nats://127.0.0.1:4222"]
+    yield nc.connect({ "servers": servers })
 
     def handler(msg):
         print("[Received: {0}] {1}".format(msg.subject, msg.data))

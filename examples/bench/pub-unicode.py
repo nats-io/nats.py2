@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import socket
 import time
 import sys
@@ -43,26 +44,16 @@ def go():
 
     nc.start_time = time.time()
     nc.max_messages = int(max_messages)
-    line = "A" * int(bytesize)
+    line = "あ" * int(bytesize)
 
     for i in range(nc.max_messages):
         try:
             nc.nc.publish("help.socket.{0}".format(i), line)
             nc.total_written += 1
-            # socket.error
-        except tornado.iostream.StreamClosedError, e:
+        except Exception, e:
             nc.stream_closed += 1
-            # nc.connection_reset += 1
-            # if e.errno == 32:
-            #     nc.broken_pipe_errors += 1
-            # elif e.errno == 11:
-            #     nc.resource_unavailable += 1
-            # elif e.errno == 104:
-            #     nc.connection_reset += 1
-            # else:
-            #     print(e)
 
-    # yield nc.nc.flush()
+    yield nc.nc.flush()
     nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
     rate = nc.total_written / duration

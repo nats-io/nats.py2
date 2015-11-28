@@ -39,8 +39,9 @@ def go():
     except:
         bytesize = 1
 
+    @tornado.gen.coroutine
     def response_handler(msg):
-        nc.nc.publish(msg.reply, "A")
+        yield nc.nc.publish_coroutine(msg.reply, "A")
 
     yield nc.nc.subscribe("help", "", response_handler)
 
@@ -53,7 +54,7 @@ def go():
             yield nc.nc.timed_request("help", line)
             nc.total_written += 1
         except tornado.gen.TimeoutError, e:
-            self.timeouts += 1
+            nc.timeouts += 1
             continue
         finally:
             nc.end_time = time.time()
