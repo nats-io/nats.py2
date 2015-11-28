@@ -27,9 +27,7 @@ _EMPTY_      = b''
 DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS = 2
 DEFAULT_TIMEOUT = 2 * 1000 # in ms
-
-# TODO: Not used right now.
-# DEFAULT_BUFFER_SIZE = 32768
+DEFAULT_BUFFER_SIZE = 32768
 
 # Reconnection logic.
 MAX_RECONNECT_ATTEMPTS = 10
@@ -54,7 +52,7 @@ class Client(object):
     self._status = Client.DISCONNECTED
     self._server_pool = []
     self._pending_bytes = ''
-    self._bw = None
+    self.io = None
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -69,6 +67,8 @@ class Client(object):
     self._pings_outstanding = 0
     self._pongs_received = 0
     self._pongs = []
+
+    # TODO: Error callback, disconnected callback.
 
   @tornado.gen.coroutine
   def connect(self, opts={}):
@@ -114,7 +114,6 @@ class Client(object):
     except Exception, e:
       yield self._schedule_primary_and_connect()
 
-    self._bw = BufferedWriter(self)
     yield self._process_connect_init()
 
     # First time connecting to NATS so if there were no errors,
@@ -129,7 +128,7 @@ class Client(object):
     self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._socket.setblocking(0)
     self._socket.settimeout(5.0)
-    self.io = tornado.iostream.IOStream(self._socket)
+    self.io = tornado.iostream.IOStream(self._socket, max_write_buffer_size=DEFAULT_BUFFER_SIZE)
     yield self.io.connect((s.uri.hostname, s.uri.port))
 
   @tornado.gen.coroutine
@@ -145,8 +144,7 @@ class Client(object):
     else:
       self._pings_outstanding += 1
       self._pongs.append(future)
-      self.send_command("{0}{1}".format(PING_OP, _CRLF_))
-      self._bw.flush()
+      yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
 
   def connect_command(self):
     """
@@ -175,8 +173,13 @@ class Client(object):
     """
     Flushes a command to the server as a bytes payload.
     """
-    self._bw.write(cmd)
+    try:
+      self.io.write(cmd)
+    except Exception, e:
+      pass
+      # TODO: Handle
 
+  @tornado.gen.coroutine
   def _publish(self, subject, reply, payload):
 
     # TODO: Check that we are still connected.
@@ -187,14 +190,15 @@ class Client(object):
     pub_args = "{0} {1} {2} {3} {4}".format(PUB_OP, subject, reply, len(payload), _CRLF_)
 
     # TODO: Check errors here.
-    self._bw.write(pub_args)
-    self._bw.write(payload)
-    self._bw.write(_CRLF_)
+    try:
+      self.io.write(pub_args)
+      self.io.write(payload)
+      self.io.write(_CRLF_)
+    except Exception, e:
+      pass
+      # TODO: Handle
 
-    # TODO: Use future for flusher to emit the contents
-    # rather than calling directly all the time.
-    self._bw.flush()
-
+  @tornado.gen.coroutine
   def publish(self, subject, payload):
     """
     Sends a PUB command to the server on the specified subject.
@@ -237,10 +241,10 @@ class Client(object):
     Flush will perform a round trip to the server and return when it
     receives the internal reply.
     """
-    yield self._flush_timeout()
+    self._flush_timeout()
 
   @tornado.gen.coroutine
-  def _flush_timeout(self,timeout=60):
+  def _flush_timeout(self,timeout=5):
     """
     Takes a timeout and sets up a future which will be return
     once the server responds back.
@@ -373,8 +377,7 @@ class Client(object):
     self._server_info = tornado.escape.json_decode((args))
 
     # CONNECT {...}
-    # TODO: Could also just write and flush I think...
-    yield self.io.write(self.connect_command())
+    yield self.send_command(self.connect_command())
 
     # Prepare the ping pong interval callback.
     self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, DEFAULT_PING_INTERVAL)
@@ -509,22 +512,3 @@ class Srv(object):
     self.uri = uri
     self.reconnects = 0
     self.last_attempt = None
-
-class BufferedWriter(io.BufferedWriter):
-  """
-  BufferedWriter is a simple wrapper around the IO to avoid
-  doing many syscalls when handling writes.
-  TODO: Needs to be improved...
-  """
-  def __init__(self, nc):
-    self.buf = b''
-    self.nc = nc
-
-  def write(self, b):
-    self.buf += b
-
-  def flush(self):
-    buf = self.buf
-    buf_size = len(buf)
-    self.nc.io.write(self.buf)
-    self.buf = self.buf[buf_size:]
