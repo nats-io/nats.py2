@@ -46,22 +46,13 @@ def go():
 
     for i in range(nc.max_messages):
         try:
-            # yield nc.nc.publish_request("help.io.{0}".format(i), "", line)
             yield nc.nc.publish_request("help.io.{0}".format(i), "", line)
             nc.total_written += 1
-            # yield nc.nc.flush()
         except Exception, e:
             print(e)
             nc.connection_reset += 1
-            # if e.errno == 32:
-            #     nc.broken_pipe_errors += 1
-            # elif e.errno == 11:
-            #     nc.resource_unavailable += 1
-            # elif e.errno == 104:
-            #     nc.connection_reset += 1
-            # else:
-            #     print(e)
 
+    yield nc.nc.flush()
     nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
     rate = nc.total_written / duration
