@@ -83,11 +83,9 @@ class Parser(object):
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
 
-
         # -ERR
         elif self.scratch.startswith(ERR_OP):
           self.state = AWAITING_MINUS_ERR_ARG
-
 
         # PONG
         elif self.scratch.startswith(PONG):
@@ -99,7 +97,6 @@ class Parser(object):
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
 
-
         # PING
         elif self.scratch.startswith(PING):
           self.nc.send_command(PONG)
@@ -108,7 +105,6 @@ class Parser(object):
           else:
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
-
 
       elif self.state == AWAITING_MSG_ARG:
         i = self.scratch.find(_CRLF_)
@@ -131,7 +127,6 @@ class Parser(object):
           self.scratch = self.scratch[i+CRLF_SIZE:]
           self.state = AWAITING_MSG_PAYLOAD
 
-
       elif self.state == AWAITING_MSG_PAYLOAD:
         if len(self.scratch) >= self.needed:
           payload = self.scratch[:self.needed]
@@ -146,13 +141,11 @@ class Parser(object):
           msg = Msg(subject=subject, sid=sid, reply=reply, data=payload)
           self.nc._process_msg(msg)
 
-
       elif self.state == AWAITING_MSG_END:
         i = self.scratch.find(MSG_END)
         if i > 0:
           self.scratch = self.scratch[i+1:]
           self.state = AWAITING_CONTROL_LINE
-
 
       # -ERR 'error'
       elif self.state == AWAITING_MINUS_ERR_ARG:
@@ -166,7 +159,6 @@ class Parser(object):
           else:
             self.scratch = b''
             self.state = AWAITING_CONTROL_LINE
-
 
 class ErrProtocol(Exception):
   pass

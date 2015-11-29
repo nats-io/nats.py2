@@ -7,20 +7,21 @@ from nats.io.client import Client as NatsClient
 def main():
     nc = NatsClient()
 
-    # establish connection to the server
+    # Establish connection to the server.
     yield nc.connect({ "verbose": True, "servers": ["nats://127.0.0.1:4222"] })
 
     def help_request(msg):
         print("[Received]: %s" % msg.data)
         nc.publish("help.announce", "OK, I can help!")
 
-    future = nc.subscribe("help.request", "", help_request)
-    sid = future.result()
-    # yield nc.unsubscribe(sid)
+    sid = yield nc.subscribe("help.request", "", help_request)
+    yield nc.auto_unsubscribe(sid, 1)
 
     loop = tornado.ioloop.IOLoop.instance()
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
-    yield nc.publish("help.request", "Need help!")
+
+    yield nc.publish_coroutine("help.request", "Need help!")
+
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
     tornado.ioloop.IOLoop.instance().stop()
 

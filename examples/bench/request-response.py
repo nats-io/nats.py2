@@ -9,14 +9,11 @@ class Client(object):
 
     def __init__(self, nc):
         self.total_written = 0
+        self.timeouts = 0
         self.start_time = None
         self.end_time = None
         self.max_messages = 0
         self.nc = nc
-        self.stream_closed = 0
-        self.broken_pipe_errors = 0
-        self.resource_unavailable = 0
-        self.connection_reset = 0
 
     def disconnected(self):
         print("Disconnected after writing: ", self.total_written)
@@ -26,9 +23,10 @@ def go():
     nc = Client(Nats())
 
     try:
-        yield nc.nc.connect({"servers": ["nats://127.0.0.1:4225"]})
+        yield nc.nc.connect({"verbose": False, "servers": ["nats://127.0.0.1:4225"]})
     except Exception, e:
         print("Error: could not establish connection to server", e)
+        tornado.ioloop.IOLoop.instance().stop()
         return
 
     try:
@@ -41,25 +39,34 @@ def go():
     except:
         bytesize = 1
 
+    @tornado.gen.coroutine
+    def response_handler(msg):
+        yield nc.nc.publish(msg.reply, "A")
+
+    yield nc.nc.subscribe("help", "workers", response_handler)
+
     nc.start_time = time.time()
     nc.max_messages = int(max_messages)
     line = "A" * int(bytesize)
 
     for i in range(nc.max_messages):
-        if i % 1000 == 0:
-            yield tornado.gen.sleep(0.001)
         try:
-            yield nc.nc.publish("help.socket.{0}".format(i), line)
+            # a = time.time()
+            result = yield nc.nc.timed_request("help", line)            
+            # b = time.time()
+            # print("result: ", result, b - a)
             nc.total_written += 1
-        except Exception, e:
-            nc.stream_closed += 1
+        except tornado.gen.TimeoutError, e:
+            nc.timeouts += 1
+            continue
+        finally:
+            nc.end_time = time.time()
 
-    # TODO: Makes things slower...
-    # yield nc.nc.flush()
-    nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
     rate = nc.total_written / duration
-    print("|{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|".format(max_messages, bytesize, duration, rate, nc.total_written, nc.broken_pipe_errors, nc.resource_unavailable, nc.connection_reset, nc.stream_closed))
+    tornado.ioloop.IOLoop.instance().stop()
+    print("|{0}|{1}|{2}|{3}|{4}|{5}|".format(max_messages, bytesize, duration, rate, nc.total_written, nc.timeouts))
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(go)
+    go()
+    tornado.ioloop.IOLoop.instance().start()

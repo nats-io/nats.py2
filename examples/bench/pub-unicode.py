@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import socket
 import time
 import sys
@@ -26,7 +27,7 @@ def go():
     nc = Client(Nats())
 
     try:
-        yield nc.nc.connect({"servers": ["nats://127.0.0.1:4225"]})
+        yield nc.nc.connect({"verbose": True, "servers": ["nats://127.0.0.1:4225"]})
     except Exception, e:
         print("Error: could not establish connection to server", e)
         return
@@ -43,13 +44,11 @@ def go():
 
     nc.start_time = time.time()
     nc.max_messages = int(max_messages)
-    line = "A" * int(bytesize)
+    line = "あ" * int(bytesize)
 
     for i in range(nc.max_messages):
-        if i % 1000 == 0:
-            yield tornado.gen.sleep(0.001)
         try:
-            yield nc.nc.publish("help.socket.{0}".format(i), line)
+            nc.nc.publish("help.socket.{0}".format(i), line)
             nc.total_written += 1
         except Exception, e:
             nc.stream_closed += 1

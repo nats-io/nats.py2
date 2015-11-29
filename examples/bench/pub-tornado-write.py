@@ -14,9 +14,10 @@ class Client(object):
         self.start_time = None
         self.end_time = None
         self.max_messages = 0
+        self.connection_reset = 0
 
     def disconnected(self):
-        print("Disconnected after writing: ", self.total_written)
+        self.connection_reset += 1
 
 @tornado.gen.coroutine
 def go():
@@ -27,7 +28,7 @@ def go():
     nc = Client()
     nc.socket = s
     nc.io = tornado.iostream.IOStream(s)
-    yield nc.io.connect(("127.0.0.1", 4222))
+    yield nc.io.connect(("127.0.0.1", 4225))
     nc.io.set_close_callback(nc.disconnected)
     yield nc.io.write("CONNECT {\"lang\":\"tornado\"}\r\n")
 
@@ -50,17 +51,15 @@ def go():
         for i in range(nc.max_messages):
             nc.total_written += 1
             nc.io.write("PUB help  {0}\r\n{1}\r\n".format(bytesize, line))
+    except Exception, e:
+        pass
     finally:
         nc.end_time = time.time()
 
     nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
     rate = nc.max_messages / duration
-    tornado.ioloop.IOLoop.instance().stop()
-    # print("Finished sending {0} messages in {1}".format(nc.max_messages, duration))
-    # print("Publishing rate: {0} msgs/sec".format(rate))
-    print("|{0}|{1}|{2}|{3}|{4}|".format(max_messages, bytesize, duration, rate, nc.total_written))
+    print("|{0}|{1}|{2}|{3}|{4}|{5}|".format(max_messages, bytesize, duration, rate, nc.total_written, nc.connection_reset))
 
 if __name__ == '__main__':
-    go()
-    tornado.ioloop.IOLoop.instance().start()
+    tornado.ioloop.IOLoop.instance().run_sync(go)
