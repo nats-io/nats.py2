@@ -49,7 +49,6 @@ def go():
             yield nc.nc.publish_request("help.io.{0}".format(i), "", line)
             nc.total_written += 1
         except Exception, e:
-            print(e)
             nc.connection_reset += 1
 
     yield nc.nc.flush()

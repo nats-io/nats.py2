@@ -9,7 +9,7 @@
 - [X] authorization
 - [X] reconnection and state
 - [ ] pending data buffering on reconnect
-- [ ] buffered output flusher, right now too simple
+- [ ] performance issues handling on larger messages
 - [X] readings deadline, flush timeout
 - [X] more thorough test split buffer scenarios
 - [X] benchmarks

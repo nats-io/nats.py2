@@ -12,7 +12,7 @@ import tornado.ioloop
 
 from random import shuffle
 from urlparse import urlparse
-from datetime import timedelta, datetime
+from datetime import timedelta
 from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser import *
@@ -23,11 +23,16 @@ _CRLF_       = b'\r\n'
 _SPC_        = b' '
 _EMPTY_      = b''
 
-# Ping interval.
+# Ping interval
 DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS = 2
 DEFAULT_TIMEOUT = 2 * 1000 # in ms
-DEFAULT_BUFFER_SIZE = 32768
+
+# TODO: Make buffers optional
+DEFAULT_READ_BUFFER_SIZE = 32768
+DEFAULT_WRITE_BUFFER_SIZE = 32768
+DEFAULT_READ_CHUNK_SIZE = 65536
+DEFAULT_PENDING_SIZE = 1024 * 1024
 
 # Reconnection logic.
 MAX_RECONNECT_ATTEMPTS = 10
@@ -51,8 +56,10 @@ class Client(object):
     self._socket = None
     self._status = Client.DISCONNECTED
     self._server_pool = []
-    self._pending_bytes = ''
+    self._pending = b''
     self.io = None
+    self.bw = BufferedWriter(self)
+    self.latest_msg = time.time()
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -109,7 +116,6 @@ class Client(object):
 
     try:
       yield self._server_connect(s)
-      s.last_attempt = datetime.now()
       self.io.set_close_callback(self._unbind)
     except Exception, e:
       yield self._schedule_primary_and_connect()
@@ -128,8 +134,12 @@ class Client(object):
     self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._socket.setblocking(0)
     self._socket.settimeout(5.0)
-    self.io = tornado.iostream.IOStream(self._socket, max_write_buffer_size=DEFAULT_BUFFER_SIZE)
-    yield self.io.connect((s.uri.hostname, s.uri.port))
+    self.io = tornado.iostream.IOStream(self._socket,
+                                        max_buffer_size=DEFAULT_READ_BUFFER_SIZE,
+                                        read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
+                                        max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
+                                        )
+    self.io.connect((s.uri.hostname, s.uri.port))
 
   @tornado.gen.coroutine
   def _send_ping(self, future=tornado.concurrent.Future()):
@@ -144,7 +154,7 @@ class Client(object):
     else:
       self._pings_outstanding += 1
       self._pongs.append(future)
-      yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
+      self.send_command("{0}{1}".format(PING_OP, _CRLF_))
 
   def connect_command(self):
     """
@@ -173,13 +183,8 @@ class Client(object):
     """
     Flushes a command to the server as a bytes payload.
     """
-    try:
-      self.io.write(cmd)
-    except Exception, e:
-      pass
-      # TODO: Handle
+    self.io.write(cmd)
 
-  @tornado.gen.coroutine
   def _publish(self, subject, reply, payload):
 
     # TODO: Check that we are still connected.
@@ -188,15 +193,9 @@ class Client(object):
       return self._err
 
     pub_args = "{0} {1} {2} {3} {4}".format(PUB_OP, subject, reply, len(payload), _CRLF_)
-
-    # TODO: Check errors here.
-    try:
-      self.io.write(pub_args)
-      self.io.write(payload)
-      self.io.write(_CRLF_)
-    except Exception, e:
-      pass
-      # TODO: Handle
+    self.io.write(pub_args)
+    self.io.write(payload)
+    self.io.write(_CRLF_)
 
   @tornado.gen.coroutine
   def publish(self, subject, payload):
@@ -206,18 +205,6 @@ class Client(object):
       ->> PUB hello 5
       ->> MSG_PAYLOAD: world
       <<- MSG hello 2 5
-
-    """
-    self._publish(subject, _EMPTY_, payload)
-
-  @tornado.gen.coroutine
-  def publish_coroutine(self, subject, payload):
-    """
-    Sends a PUB command to the server on the specified subject using a coroutine.
-
-       ->> PUB hello    5
-       ->> MSG_PAYLOAD: world
-       <<- MSG hello 2  5
 
     """
     self._publish(subject, _EMPTY_, payload)
@@ -244,15 +231,15 @@ class Client(object):
     self._flush_timeout()
 
   @tornado.gen.coroutine
-  def _flush_timeout(self,timeout=5):
+  def _flush_timeout(self,timeout=5000):
     """
     Takes a timeout and sets up a future which will be return
     once the server responds back.
     """
     future = tornado.concurrent.Future()
     yield self._send_ping(future)
-    # TODO: Maybe should return value of resulting future (True, once pong is received).
-    yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+    result = yield tornado.gen.with_timeout(timedelta(milliseconds=timeout), future)
+    raise tornado.gen.Return(result)
 
   @tornado.gen.coroutine
   def request(self, subject, payload, callback=None):
@@ -274,7 +261,7 @@ class Client(object):
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
-  def timed_request(self, subject, payload, timeout=5):
+  def timed_request(self, subject, payload, timeout=5000):
     """
     Implements the request/response expecting a single response
     on an inbox with a timeout by using futures instead of callbacks.
@@ -291,7 +278,7 @@ class Client(object):
     sid = yield self.subscribe(inbox, _EMPTY_, None, future)
     yield self.auto_unsubscribe(sid, 1)
     yield self.publish_request(subject, inbox, payload)
-    msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+    msg = yield tornado.gen.with_timeout(timedelta(milliseconds=timeout), future)
     raise tornado.gen.Return(msg)
 
   @tornado.gen.coroutine
@@ -354,7 +341,6 @@ class Client(object):
     then it tries to set the message into a future.
     """
     sub = self._subs[msg.sid]
-
     if sub.callback is not None:
       sub.callback(msg)
     elif sub.future is not None:
@@ -384,7 +370,7 @@ class Client(object):
     self._ping_timer.start()
 
     # Parser reads directly from the same IO as the client.
-    self._ps.read()
+    tornado.ioloop.IOLoop.instance().spawn_callback(self._ps.read)
 
     # Send a PING expecting a pong meaning that the server has processed
     # all messages we have sent this far.  Reply from server should be handled
@@ -461,7 +447,6 @@ class Client(object):
       if s is None:
         raise ErrNoServers
       s.reconnects += 1
-      s.last_attempt = datetime.now()
 
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect too soon to a

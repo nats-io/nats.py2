@@ -26,7 +26,7 @@ def go():
     nc = Client(Nats())
 
     try:
-        yield nc.nc.connect({"verbose": True, "servers": ["nats://127.0.0.1:4225"]})
+        yield nc.nc.connect({"servers": ["nats://127.0.0.1:4225"]})
     except Exception, e:
         print("Error: could not establish connection to server", e)
         return
@@ -46,22 +46,15 @@ def go():
     line = "A" * int(bytesize)
 
     for i in range(nc.max_messages):
+        if i % 1000 == 0:
+            yield tornado.gen.sleep(0.001)
         try:
-            nc.nc.publish("help.socket.{0}".format(i), line)
+            yield nc.nc.publish("help.socket.{0}".format(i), line)
             nc.total_written += 1
-            # socket.error
-        except tornado.iostream.StreamClosedError, e:
+        except Exception, e:
             nc.stream_closed += 1
-            # nc.connection_reset += 1
-            # if e.errno == 32:
-            #     nc.broken_pipe_errors += 1
-            # elif e.errno == 11:
-            #     nc.resource_unavailable += 1
-            # elif e.errno == 104:
-            #     nc.connection_reset += 1
-            # else:
-            #     print(e)
 
+    # TODO: Makes things slower...
     # yield nc.nc.flush()
     nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
