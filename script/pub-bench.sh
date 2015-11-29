@@ -2,32 +2,11 @@
 
 # Simple utility to generate table with benchmarks.
 
-echo "*** PUB using raw python sockets, no buffered writer."
-echo
-echo "| messages | bytes |         duration |      msgs/sec | max written |"
-for nbytes in 1 10 100 1000; do 
-  for messages in 1000 10000 100000 200000; do
-    python examples/bench/pub-raw-socket.py $messages $nbytes; 2> /dev/null
-  done;
-done
-echo
-echo
-
-echo "*** PUB using tornado IO, no buffered writer."
-echo
-echo "| messages | bytes |         duration |      msgs/sec | max written |"
-for nbytes in 1 10 100 1000; do 
-  for messages in 1000 10000 100000; do
-    python examples/bench/pub-tornado-write.py $messages $nbytes;  2> /dev/null
-  done;
-done
-echo
-echo
-
 echo "*** PUB using NATS client."
 echo
 echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset | stream closed |"
-for nbytes in 1 10 100 1000 10000; do 
+# TODO: Issues with 10000 bytes messages
+for nbytes in 1 10 100 1000; do 
   for messages in 100 1000 10000 100000 ; do
     python examples/bench/pub.py $messages $nbytes;  2> /dev/null
   done;
@@ -86,6 +65,30 @@ echo "| messages | bytes |         duration |      msgs/sec | max written | time
 for nbytes in 1 10 100 1000 5000 ; do 
   for messages in 100 1000 10000 ; do
     python examples/bench/request-response.py $messages $nbytes;  2> /dev/null
+  done;
+done
+echo
+echo
+
+echo "** Reference benchmarks"
+echo 
+echo "*** PUB using raw python sockets, no buffered writer."
+echo
+echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset |"
+for nbytes in 1 10 100 1000 10000; do 
+  for messages in 1000 10000 100000 200000; do
+    python examples/bench/pub-raw-socket.py $messages $nbytes; 2> /dev/null
+  done;
+done
+echo
+echo
+
+echo "*** PUB using tornado IO, no buffered writer."
+echo
+echo "| messages | bytes |         duration |      msgs/sec | max written | connection reset |"
+for nbytes in 1 10 100 1000 10000; do 
+  for messages in 1000 10000 100000; do
+    python examples/bench/pub-tornado-write.py $messages $nbytes;  2> /dev/null
   done;
 done
 echo
