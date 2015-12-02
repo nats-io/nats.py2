@@ -21,38 +21,46 @@ python setup.py install
 ## Basic Usage
 
 ```python
-    import tornado.ioloop
-    import tornado.gen
-    import tornado.concurrent
-    from nats.io.client import Client as NATS
-    from nats.io.utils  import new_inbox
+import tornado.ioloop
+import tornado.gen
+import time
+from nats.io.client import Client as NATS
 
-    @tornado.gen.coroutine
-    def go():
-      nats = NATS()
-      yield nats.connect({"servers": ["nats://127.0.0.1:4222"]})
+@tornado.gen.coroutine
+def main():
+    nc = NATS()
 
-      @tornado.gen.coroutine
-      def request_handler(msg):
-        yield nats.publish(msg.reply, "I can help!")
+    # Establish connection to the server.
+    yield nc.connect({ "verbose": True, "servers": ["nats://127.0.0.1:4225"] })
 
-      # Simple Async subscriber
-      sid = yield nats.subscribe("help", "", request_handler)
+    def discover(msg):
+        print("[Received]: %s" % msg.data)
 
-      # Unsubscribing
-      yield nats.auto_unsubscribe(sid, 1)
+    sid = yield nc.subscribe("discover", "", discover)
+    yield nc.auto_unsubscribe(sid, 2)
 
-      try:
-        # Requests
-        response = yield nats.timed_request("help", "help me", timeout=1)
-        print("Got:", response.data)
-      except tornado.gen.TimeoutError, e:
-        print("Timeout!", e)
+    loop = tornado.ioloop.IOLoop.instance()
+    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
 
-      tornado.ioloop.IOLoop.instance().stop()
+    yield nc.publish("discover", "A")
+    yield nc.publish("discover", "B")
+    
+    # Following two messages won't be received.
+    yield nc.publish("discover", "C")
+    yield nc.publish("discover", "D")
 
-    if __name__ == '__main__':
-      tornado.ioloop.IOLoop.instance().run_sync(go)
+    def help_request_handler(msg):
+        print("[Received]: %s" % msg.data)
+        nc.publish(msg.reply, "OK, I can help!")
+
+    yield nc.subscribe("help", "workers", help_request_handler)
+    response = yield nc.timed_request("help", "Hi, need help!")
+    print("[Response]: %s" % response.data)
+    
+    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
+
+if __name__ == '__main__':
+    tornado.ioloop.IOLoop.instance().run_sync(main)
 ```
 
 ## Examples
