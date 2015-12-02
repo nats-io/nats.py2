@@ -56,6 +56,7 @@ class Client(object):
     self._socket = None
     self._status = Client.DISCONNECTED
     self._server_pool = []
+    self._current_server = None
     self._pending = b''
     self.io = None
 
@@ -114,6 +115,7 @@ class Client(object):
 
     try:
       yield self._server_connect(s)
+      self._current_server = s
       self.io.set_close_callback(self._unbind)
     except Exception, e:
       yield self._schedule_primary_and_connect()
@@ -169,10 +171,9 @@ class Client(object):
       "version": __version__
     }
     if "auth_required" in self._server_info:
-      if "user" in self.options:
-         options["user"] = self.options["user"]
-      if "pass" in self.options:
-        options["pass"] = self.options["pass"]
+      if self._server_info["auth_required"] == True:
+        options["user"] = self._current_server.uri.username
+        options["pass"] = self._current_server.uri.password
     args = json.dumps(options, sort_keys=True)
     return b'{0} {1}{2}'.format(CONNECT_OP, args, _CRLF_)
 
