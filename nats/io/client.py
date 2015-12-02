@@ -58,8 +58,6 @@ class Client(object):
     self._server_pool = []
     self._pending = b''
     self.io = None
-    self.bw = BufferedWriter(self)
-    self.latest_msg = time.time()
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
