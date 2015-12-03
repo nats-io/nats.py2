@@ -56,7 +56,7 @@ def main():
         end = datetime.now()
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
-        print("Timeout! Flush too slow...")
+        print("Timeout! Roundtrip too slow...")
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
