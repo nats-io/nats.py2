@@ -32,6 +32,7 @@ def main():
         print("[Received]: %s" % msg.data)
         nc.publish(msg.reply, "OK, I can help!")
 
+    # Susbcription using distributed queue
     yield nc.subscribe("help", "workers", help_request_handler)
 
     try:
@@ -48,7 +49,7 @@ def main():
         end = datetime.now()
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
-        print("Timeout! Need to retry...")
+        print("Timeout! Flush too slow...")
 
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
 
