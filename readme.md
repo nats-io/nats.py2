@@ -26,6 +26,7 @@ import tornado.ioloop
 import tornado.gen
 import time
 from datetime import datetime
+from nats.io.utils  import new_inbox
 from nats.io.client import Client as NATS
 
 @tornado.gen.coroutine
@@ -65,6 +66,12 @@ def main():
     except tornado.gen.TimeoutError, e:
         print("Timeout! Need to retry...")
 
+    # Publish inbox
+    my_inbox = new_inbox()
+    yield nc.subscribe(my_inbox)
+    yield nc.publish_request("help", my_inbox, "I can help too!")
+
+    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
     try:
         start = datetime.now()
         # Make roundtrip to the server and timeout after 1000 ms
@@ -73,8 +80,6 @@ def main():
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
         print("Timeout! Flush too slow...")
-
-    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
