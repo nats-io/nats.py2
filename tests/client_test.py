@@ -7,10 +7,13 @@ else:
 
 import tornado.testing
 import tornado.gen
+import tornado.ioloop
 import subprocess
 import multiprocessing
 import time
 import socket
+import urllib2
+import json
 
 from nats.io.errors import *
 from nats.io.client import Client, __version__
@@ -23,16 +26,18 @@ class Server(object):
                   port=4222,
                   user="",
                   password="",
-                  timeout=1
+                  timeout=1,
+                  http_port=8222
                ):
           self.port = port
           self.user = user
           self.password = password
           self.timeout = timeout
+          self.http_port = http_port
           self.proc = None
 
      def run(self):
-          cmd = ["gnatsd", "-p", "%d" % self.port, "-DV"] # , "-l", "gnatsd.log"]
+          cmd = ["gnatsd", "-p", "%d" % self.port, "-DV", "-m", "%d" % self.http_port] # , "-l", "gnatsd.log"]
 
           if self.user != "":
                cmd.append("--user")
@@ -41,9 +46,7 @@ class Server(object):
                cmd.append("--pass")
                cmd.append(self.password)
 
-          print(cmd)
           self.proc = subprocess.Popen(cmd)
-          # For now wait for a bit then stop abruptly
           time.sleep(self.timeout)
           self.proc.terminate()
 
@@ -64,91 +67,143 @@ class ClientUtilsTest(unittest.TestCase):
          min_expected_len = len(INBOX_PREFIX)
          self.assertTrue(len(inbox) > min_expected_len)
 
-class ClientTest(tornado.testing.AsyncTestCase):
+# class ClientTest(tornado.testing.AsyncTestCase):
+
+#      def setUp(self):
+#           self.server = Server(port=4222)
+#           self.proc = multiprocessing.Process(target=self.server.run)
+#           self.proc.start()
+#           time.sleep(0.5)
+#           super(ClientTest, self).setUp()
+
+#      def tearDown(self):
+#           self.proc.join(1)
+#           self.proc.terminate()
+#           super(ClientTest, self).tearDown()
+
+#      @tornado.testing.gen_test
+#      def test_parse_info(self):
+#           nc = Client()
+#           yield nc.connect()
+
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
+#           self.assertIn("server_id", info_keys)
+#           self.assertIn("version", info_keys)
+#           self.assertIn("go", info_keys)
+#           self.assertIn("host", info_keys)
+#           self.assertIn("port", info_keys)
+#           self.assertIn("auth_required", info_keys)
+#           self.assertIn("ssl_required", info_keys)
+#           self.assertIn("max_payload", info_keys)
+
+#      @tornado.testing.gen_test
+#      def test_connect_verbose(self):
+#           nc = Client()
+#           yield nc.connect({"verbose": True})
+
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
+
+#      @tornado.testing.gen_test
+#      def test_connect_pedantic(self):
+#           nc = Client()
+#           yield nc.connect({"pedantic": True})
+
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
+
+#      @tornado.testing.gen_test
+#      def test_connect_missing_server(self):
+#           nc = Client()
+#           with self.assertRaises(Exception):
+#                yield nc.connect({"servers": ["nats://127.0.0.1:4223"]})
+
+#      @tornado.testing.gen_test
+#      def test_publish(self):
+#           nc = Client()
+#           yield nc.connect({"pedantic": True})
+#           self.assertEqual(Client.CONNECTED, nc._status)
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
+#           yield nc.publish("one", "hello")
+#           yield nc.publish("two", "world")
+          
+
+# class ClientAuthorizationTest(tornado.testing.AsyncTestCase):
+
+#      def setUp(self):
+#           self.server = Server(port=4223, user="foo", password="bar")
+#           self.proc = multiprocessing.Process(target=self.server.run)
+#           self.proc.start()
+#           time.sleep(0.5)
+#           super(ClientAuthorizationTest, self).setUp()
+
+#      def tearDown(self):
+#           self.proc.join(1)
+#           self.proc.terminate()
+#           super(ClientAuthorizationTest, self).tearDown()
+
+#      @tornado.testing.gen_test
+#      def test_auth_connect(self):
+#           nc = Client()
+#           options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
+#           yield nc.connect(options)
+#           self.assertEqual(True, nc._server_info["auth_required"])
+#           yield nc.publish("hello", "world")
+
+class ClientAuthorizationReconnectTest(tornado.testing.AsyncTestCase):
 
      def setUp(self):
-          self.server = Server(port=4222)
+          self.server = Server(port=4223, user="foo", password="bar",timeout=0.2, http_port=8223)
           self.proc = multiprocessing.Process(target=self.server.run)
           self.proc.start()
-          # Dumb wait for the server to start
+
+          self.server2 = Server(port=4224, user="foo", password="bar",timeout=4, http_port=8224)
+          self.proc2 = multiprocessing.Process(target=self.server2.run)
+          self.proc2.start()
           time.sleep(0.5)
-          super(ClientTest, self).setUp()
+          super(ClientAuthorizationReconnectTest, self).setUp()
 
      def tearDown(self):
-          self.proc.join(3)
+          self.proc.join(5)
           self.proc.terminate()
-          super(ClientTest, self).tearDown()
-
-     @tornado.testing.gen_test
-     def test_parse_info(self):
-          nc = Client()
-          yield nc.connect()
-
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
-          self.assertIn("server_id", info_keys)
-          self.assertIn("version", info_keys)
-          self.assertIn("go", info_keys)
-          self.assertIn("host", info_keys)
-          self.assertIn("port", info_keys)
-          self.assertIn("auth_required", info_keys)
-          self.assertIn("ssl_required", info_keys)
-          self.assertIn("max_payload", info_keys)
-
-     @tornado.testing.gen_test
-     def test_connect_verbose(self):
-          nc = Client()
-          yield nc.connect({"verbose": True})
-
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
-
-     @tornado.testing.gen_test
-     def test_connect_pedantic(self):
-          nc = Client()
-          yield nc.connect({"pedantic": True})
-
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
-
-     # @tornado.testing.gen_test
-     # def test_connect_missing_server(self):
-     #      nc = Client()
-     #      with self.assertRaises(Exception):
-     #           yield nc.connect({"servers": ["nats://127.0.0.1:4226"]})
-
-     @tornado.testing.gen_test
-     def test_publish(self):
-          nc = Client()
-          yield nc.connect({"pedantic": True})
-          self.assertEqual(Client.CONNECTED, nc._status)
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
-          yield nc.publish("hello", "world")
-          # TODO: Confirm from the monitoring endpoint?
-
-class ClientAuthorizationTest(tornado.testing.AsyncTestCase):
-
-     def setUp(self):
-          self.server = Server(port=4223, user="foo", password="bar")
-          self.proc = multiprocessing.Process(target=self.server.run)
-          self.proc.start()
-          # Dumb wait for the server to start
-          time.sleep(0.5)
-          super(ClientAuthorizationTest, self).setUp()
-
-     def tearDown(self):
-          self.proc.join(3)
-          self.proc.terminate()
-          super(ClientAuthorizationTest, self).tearDown()
+          self.proc2.join(10)
+          self.proc2.terminate()
+          super(ClientAuthorizationReconnectTest, self).tearDown()
 
      @tornado.testing.gen_test
      def test_auth_connect(self):
           nc = Client()
-          options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
+          options = {
+               "dont_randomize": True,
+               "servers": [
+                    "nats://foo:bar@127.0.0.1:4223",
+                    "nats://foo:bar@127.0.0.1:4224"
+                    ]
+               }
           yield nc.connect(options)
           self.assertEqual(True, nc._server_info["auth_required"])
-          yield nc.publish("hello", "world")
+
+          sid_1 = yield nc.subscribe("foo", "",  lambda msg: nc.publish("ok", "ok"))
+          self.assertEqual(sid_1, 1)
+          sid_2 = yield nc.subscribe("bar", "",  lambda msg: nc.publish(msg.reply, msg.data))
+          self.assertEqual(sid_2, 2)
+          sid_3 = yield nc.subscribe("quux", "", lambda msg: nc.publish(msg.reply, msg.data))
+          self.assertEqual(sid_3, 3)
+
+          # Kill first server...
+          # self.proc.join(1)
+          # self.proc.terminate()
+          
+          # Force disconnect...
+          nc.io.close()
+
+          try:
+               a = nc._current_server
+          finally:
+               b = nc._current_server
+               self.assertNotEqual(a.uri, b.uri)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)

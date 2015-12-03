@@ -120,10 +120,9 @@ class Client(object):
     except Exception, e:
       yield self._schedule_primary_and_connect()
 
-    yield self._process_connect_init()
-
     # First time connecting to NATS so if there were no errors,
     # we can consider to be connected at this point.
+    yield self._process_connect_init()
     self._status = Client.CONNECTED
 
   @tornado.gen.coroutine
@@ -139,7 +138,7 @@ class Client(object):
                                         read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
                                         max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
                                         )
-    self.io.connect((s.uri.hostname, s.uri.port))
+    yield self.io.connect((s.uri.hostname, s.uri.port))
 
   @tornado.gen.coroutine
   def _send_ping(self, future=tornado.concurrent.Future()):
@@ -380,9 +379,9 @@ class Client(object):
     """
     Chooses next available server to connect.
     """
-    if self.options["dont_randomize"]:
-      server = self.options['servers'].pop(0)
-      self._server_pool.insert(-1, server)
+    if self.options["dont_randomize"] == True:
+      server = self._server_pool.pop(0)
+      self._server_pool.append(server)
     else:
       shuffle(self._server_pool)
 
@@ -392,7 +391,6 @@ class Client(object):
       if server.reconnects > MAX_RECONNECT_ATTEMPTS:
         continue
       s = server
-
     return s
 
   def is_closed(self):
