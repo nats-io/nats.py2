@@ -17,10 +17,9 @@ def main():
         print("[Received]: %s" % msg.data)
 
     sid = yield nc.subscribe("discover", "", discover)
+
     # Only interested in 2 messages.
     yield nc.auto_unsubscribe(sid, 2)
-
-    loop = tornado.ioloop.IOLoop.instance()
     yield nc.publish("discover", "A")
     yield nc.publish("discover", "B")
 
@@ -48,6 +47,7 @@ def main():
     yield nc.subscribe(my_inbox)
     yield nc.publish_request("help", my_inbox, "I can help too!")
 
+    loop = tornado.ioloop.IOLoop.instance()
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
     try:
         start = datetime.now()
