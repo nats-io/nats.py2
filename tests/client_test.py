@@ -67,90 +67,90 @@ class ClientUtilsTest(unittest.TestCase):
          min_expected_len = len(INBOX_PREFIX)
          self.assertTrue(len(inbox) > min_expected_len)
 
-# class ClientTest(tornado.testing.AsyncTestCase):
+class ClientTest(tornado.testing.AsyncTestCase):
 
-#      def setUp(self):
-#           self.server = Server(port=4222)
-#           self.proc = multiprocessing.Process(target=self.server.run)
-#           self.proc.start()
-#           time.sleep(0.5)
-#           super(ClientTest, self).setUp()
+     def setUp(self):
+          self.server = Server(port=4222)
+          self.proc = multiprocessing.Process(target=self.server.run)
+          self.proc.start()
+          time.sleep(0.5)
+          super(ClientTest, self).setUp()
 
-#      def tearDown(self):
-#           self.proc.join(1)
-#           self.proc.terminate()
-#           super(ClientTest, self).tearDown()
+     def tearDown(self):
+          self.proc.join(1)
+          self.proc.terminate()
+          super(ClientTest, self).tearDown()
 
-#      @tornado.testing.gen_test
-#      def test_parse_info(self):
-#           nc = Client()
-#           yield nc.connect()
+     @tornado.testing.gen_test
+     def test_parse_info(self):
+          nc = Client()
+          yield nc.connect()
 
-#           info_keys = nc._server_info.keys()
-#           self.assertTrue(len(info_keys) > 0)
-#           self.assertIn("server_id", info_keys)
-#           self.assertIn("version", info_keys)
-#           self.assertIn("go", info_keys)
-#           self.assertIn("host", info_keys)
-#           self.assertIn("port", info_keys)
-#           self.assertIn("auth_required", info_keys)
-#           self.assertIn("ssl_required", info_keys)
-#           self.assertIn("max_payload", info_keys)
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+          self.assertIn("server_id", info_keys)
+          self.assertIn("version", info_keys)
+          self.assertIn("go", info_keys)
+          self.assertIn("host", info_keys)
+          self.assertIn("port", info_keys)
+          self.assertIn("auth_required", info_keys)
+          self.assertIn("ssl_required", info_keys)
+          self.assertIn("max_payload", info_keys)
 
-#      @tornado.testing.gen_test
-#      def test_connect_verbose(self):
-#           nc = Client()
-#           yield nc.connect({"verbose": True})
+     @tornado.testing.gen_test
+     def test_connect_verbose(self):
+          nc = Client()
+          yield nc.connect({"verbose": True})
 
-#           info_keys = nc._server_info.keys()
-#           self.assertTrue(len(info_keys) > 0)
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
 
-#      @tornado.testing.gen_test
-#      def test_connect_pedantic(self):
-#           nc = Client()
-#           yield nc.connect({"pedantic": True})
+     @tornado.testing.gen_test
+     def test_connect_pedantic(self):
+          nc = Client()
+          yield nc.connect({"pedantic": True})
 
-#           info_keys = nc._server_info.keys()
-#           self.assertTrue(len(info_keys) > 0)
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
 
-#      @tornado.testing.gen_test
-#      def test_connect_missing_server(self):
-#           nc = Client()
-#           with self.assertRaises(Exception):
-#                yield nc.connect({"servers": ["nats://127.0.0.1:4223"]})
+     @tornado.testing.gen_test
+     def test_connect_missing_server(self):
+          nc = Client()
+          with self.assertRaises(Exception):
+               yield nc.connect({"servers": ["nats://127.0.0.1:4223"]})
 
-#      @tornado.testing.gen_test
-#      def test_publish(self):
-#           nc = Client()
-#           yield nc.connect({"pedantic": True})
-#           self.assertEqual(Client.CONNECTED, nc._status)
-#           info_keys = nc._server_info.keys()
-#           self.assertTrue(len(info_keys) > 0)
-#           yield nc.publish("one", "hello")
-#           yield nc.publish("two", "world")
+     @tornado.testing.gen_test
+     def test_publish(self):
+          nc = Client()
+          yield nc.connect({"pedantic": True})
+          self.assertEqual(Client.CONNECTED, nc._status)
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+          yield nc.publish("one", "hello")
+          yield nc.publish("two", "world")
           
 
-# class ClientAuthorizationTest(tornado.testing.AsyncTestCase):
+class ClientAuthorizationTest(tornado.testing.AsyncTestCase):
 
-#      def setUp(self):
-#           self.server = Server(port=4223, user="foo", password="bar")
-#           self.proc = multiprocessing.Process(target=self.server.run)
-#           self.proc.start()
-#           time.sleep(0.5)
-#           super(ClientAuthorizationTest, self).setUp()
+     def setUp(self):
+          self.server = Server(port=4223, user="foo", password="bar")
+          self.proc = multiprocessing.Process(target=self.server.run)
+          self.proc.start()
+          time.sleep(0.5)
+          super(ClientAuthorizationTest, self).setUp()
 
-#      def tearDown(self):
-#           self.proc.join(1)
-#           self.proc.terminate()
-#           super(ClientAuthorizationTest, self).tearDown()
+     def tearDown(self):
+          self.proc.join(1)
+          self.proc.terminate()
+          super(ClientAuthorizationTest, self).tearDown()
 
-#      @tornado.testing.gen_test
-#      def test_auth_connect(self):
-#           nc = Client()
-#           options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
-#           yield nc.connect(options)
-#           self.assertEqual(True, nc._server_info["auth_required"])
-#           yield nc.publish("hello", "world")
+     @tornado.testing.gen_test
+     def test_auth_connect(self):
+          nc = Client()
+          options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
+          yield nc.connect(options)
+          self.assertEqual(True, nc._server_info["auth_required"])
+          yield nc.publish("hello", "world")
 
 class ClientAuthorizationReconnectTest(tornado.testing.AsyncTestCase):
 
