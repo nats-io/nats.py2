@@ -5,14 +5,13 @@ if sys.version_info >= (2, 7):
 else:
     import unittest2 as unittest
 
+import tornado.httpclient
 import tornado.testing
 import tornado.gen
 import tornado.ioloop
 import subprocess
 import multiprocessing
 import time
-import socket
-import urllib2
 import json
 
 from nats.io.errors import *
@@ -128,49 +127,26 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertTrue(len(info_keys) > 0)
           yield nc.publish("one", "hello")
           yield nc.publish("two", "world")
-          
 
-class ClientAuthorizationTest(tornado.testing.AsyncTestCase):
-
-     def setUp(self):
-          self.server = Server(port=4223, user="foo", password="bar")
-          self.proc = multiprocessing.Process(target=self.server.run)
-          self.proc.start()
-          time.sleep(0.5)
-          super(ClientAuthorizationTest, self).setUp()
-
-     def tearDown(self):
-          self.proc.join(1)
-          self.proc.terminate()
-          super(ClientAuthorizationTest, self).tearDown()
-
-     @tornado.testing.gen_test
-     def test_auth_connect(self):
-          nc = Client()
-          options = {"servers": ["nats://foo:bar@127.0.0.1:4223"]}
-          yield nc.connect(options)
-          self.assertEqual(True, nc._server_info["auth_required"])
-          yield nc.publish("hello", "world")
-
-class ClientAuthorizationReconnectTest(tornado.testing.AsyncTestCase):
+class ClientAuthTest(tornado.testing.AsyncTestCase):
 
      def setUp(self):
-          self.server = Server(port=4223, user="foo", password="bar",timeout=0.2, http_port=8223)
+          self.server = Server(port=4223, user="foo", password="bar", timeout=1, http_port=8223)
           self.proc = multiprocessing.Process(target=self.server.run)
           self.proc.start()
 
-          self.server2 = Server(port=4224, user="foo", password="bar",timeout=4, http_port=8224)
+          self.server2 = Server(port=4224, user="foo2", password="bar2", timeout=4, http_port=8224)
           self.proc2 = multiprocessing.Process(target=self.server2.run)
           self.proc2.start()
           time.sleep(0.5)
-          super(ClientAuthorizationReconnectTest, self).setUp()
+          super(ClientAuthTest, self).setUp()
 
      def tearDown(self):
-          self.proc.join(5)
+          self.proc.join(10)
           self.proc.terminate()
           self.proc2.join(10)
           self.proc2.terminate()
-          super(ClientAuthorizationReconnectTest, self).tearDown()
+          super(ClientAuthTest, self).tearDown()
 
      @tornado.testing.gen_test
      def test_auth_connect(self):
@@ -179,28 +155,46 @@ class ClientAuthorizationReconnectTest(tornado.testing.AsyncTestCase):
                "dont_randomize": True,
                "servers": [
                     "nats://foo:bar@127.0.0.1:4223",
-                    "nats://foo:bar@127.0.0.1:4224"
+                    "nats://foo2:bar2@127.0.0.1:4224"
                     ]
                }
           yield nc.connect(options)
           self.assertEqual(True, nc._server_info["auth_required"])
 
-          sid_1 = yield nc.subscribe("foo", "",  lambda msg: nc.publish("ok", "ok"))
+          sid_1 = yield nc.subscribe("foo", "",  lambda msg: nc.publish(msg.reply, msg.data))
           self.assertEqual(sid_1, 1)
           sid_2 = yield nc.subscribe("bar", "",  lambda msg: nc.publish(msg.reply, msg.data))
           self.assertEqual(sid_2, 2)
           sid_3 = yield nc.subscribe("quux", "", lambda msg: nc.publish(msg.reply, msg.data))
           self.assertEqual(sid_3, 3)
 
-          # Kill first server...
-          # self.proc.join(1)
-          # self.proc.terminate()
-          
+          yield nc.publish("foo", "hello")
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:8223/connz')
+          result = json.loads(response.body)
+          connz = result['connections'][0]
+          self.assertEqual(3, connz['subscriptions'])
+          self.assertEqual(1, connz['in_msgs'])
+          self.assertEqual(5, connz['in_bytes'])
+
+          yield nc.publish("foo", "world")
+          response = yield http.fetch('http://127.0.0.1:8223/connz')
+          result = json.loads(response.body)
+          connz = result['connections'][0]
+          self.assertEqual(3, connz['subscriptions'])
+          self.assertEqual(2, connz['in_msgs'])
+          self.assertEqual(10, connz['in_bytes'])
+
           # Force disconnect...
           nc.io.close()
+          nc._unbind()
+          http.close()
 
+          # TODO: Test reconnect with another server
           try:
                a = nc._current_server
+               yield tornado.gen.sleep(2)
           finally:
                b = nc._current_server
                self.assertNotEqual(a.uri, b.uri)

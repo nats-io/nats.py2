@@ -8,14 +8,15 @@
 - [X] cluster
 - [X] authorization
 - [X] reconnection and state
-- [ ] pending data buffering on reconnect
-- [ ] performance issues handling on larger messages
 - [X] readings deadline, flush timeout
 - [X] more thorough test split buffer scenarios
 - [X] benchmarks
+- [ ] pending data buffering on reconnect
+- [ ] performance issues handling on larger messages
 - [ ] error callbacks, exceptions
 - [ ] client connection stats
 - [ ] check len of control line in parser
 - [ ] follow size of max payload
 - [ ] TLS
-- [ ] Travis builds and improved tests
+- [ ] Travis builds
+- [ ] improved tests
