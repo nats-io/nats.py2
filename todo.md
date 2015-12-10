@@ -13,7 +13,6 @@
 - [X] benchmarks
 - [X] error, close, disconnected callbacks,
 - [X] pending data buffering on reconnect
-- [ ] statistics
 - [ ] performance issues handling on larger messages
 - [ ] client connection stats
 - [ ] check len of control line in parser
