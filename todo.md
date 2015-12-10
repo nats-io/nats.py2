@@ -11,12 +11,13 @@
 - [X] readings deadline, flush timeout
 - [X] more thorough test split buffer scenarios
 - [X] benchmarks
-- [ ] pending data buffering on reconnect
+- [X] error, close, disconnected callbacks,
+- [X] pending data buffering on reconnect
+- [ ] statistics
 - [ ] performance issues handling on larger messages
-- [ ] error callbacks, exceptions
 - [ ] client connection stats
 - [ ] check len of control line in parser
 - [ ] follow size of max payload
 - [ ] TLS
 - [ ] Travis builds
-- [ ] improved tests
+- [ ] Improved tests

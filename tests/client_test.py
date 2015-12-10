@@ -47,86 +47,87 @@ class Server(object):
 
           self.proc = subprocess.Popen(cmd)
           time.sleep(self.timeout)
+          print("done!!!", self.port)
           self.proc.terminate()
 
-class ClientUtilsTest(unittest.TestCase):
+# class ClientUtilsTest(unittest.TestCase):
 
-    def test_default_connect_command(self):
-        nc = Client()
-        nc.options["verbose"] = False
-        nc.options["pedantic"] = False
-        nc.options["auth_required"] = False
-        got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
-        self.assertEqual(expected, got)
+#     def test_default_connect_command(self):
+#         nc = Client()
+#         nc.options["verbose"] = False
+#         nc.options["pedantic"] = False
+#         nc.options["auth_required"] = False
+#         got = nc.connect_command()
+#         expected = 'CONNECT {"lang": "python2", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
+#         self.assertEqual(expected, got)
 
-    def tests_generate_new_inbox(self):
-         inbox = new_inbox()
-         self.assertTrue(inbox.startswith(INBOX_PREFIX))
-         min_expected_len = len(INBOX_PREFIX)
-         self.assertTrue(len(inbox) > min_expected_len)
+#     def tests_generate_new_inbox(self):
+#          inbox = new_inbox()
+#          self.assertTrue(inbox.startswith(INBOX_PREFIX))
+#          min_expected_len = len(INBOX_PREFIX)
+#          self.assertTrue(len(inbox) > min_expected_len)
 
-class ClientTest(tornado.testing.AsyncTestCase):
+# class ClientTest(tornado.testing.AsyncTestCase):
 
-     def setUp(self):
-          self.server = Server(port=4222)
-          self.proc = multiprocessing.Process(target=self.server.run)
-          self.proc.start()
-          time.sleep(0.5)
-          super(ClientTest, self).setUp()
+#      def setUp(self):
+#           self.server = Server(port=4222)
+#           self.proc = multiprocessing.Process(target=self.server.run)
+#           self.proc.start()
+#           time.sleep(0.5)
+#           super(ClientTest, self).setUp()
 
-     def tearDown(self):
-          self.proc.join(1)
-          self.proc.terminate()
-          super(ClientTest, self).tearDown()
+#      def tearDown(self):
+#           self.proc.join(1)
+#           self.proc.terminate()
+#           super(ClientTest, self).tearDown()
 
-     @tornado.testing.gen_test
-     def test_parse_info(self):
-          nc = Client()
-          yield nc.connect()
+#      @tornado.testing.gen_test
+#      def test_parse_info(self):
+#           nc = Client()
+#           yield nc.connect()
 
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
-          self.assertIn("server_id", info_keys)
-          self.assertIn("version", info_keys)
-          self.assertIn("go", info_keys)
-          self.assertIn("host", info_keys)
-          self.assertIn("port", info_keys)
-          self.assertIn("auth_required", info_keys)
-          self.assertIn("ssl_required", info_keys)
-          self.assertIn("max_payload", info_keys)
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
+#           self.assertIn("server_id", info_keys)
+#           self.assertIn("version", info_keys)
+#           self.assertIn("go", info_keys)
+#           self.assertIn("host", info_keys)
+#           self.assertIn("port", info_keys)
+#           self.assertIn("auth_required", info_keys)
+#           self.assertIn("ssl_required", info_keys)
+#           self.assertIn("max_payload", info_keys)
 
-     @tornado.testing.gen_test
-     def test_connect_verbose(self):
-          nc = Client()
-          yield nc.connect({"verbose": True})
+#      @tornado.testing.gen_test
+#      def test_connect_verbose(self):
+#           nc = Client()
+#           yield nc.connect({"verbose": True})
 
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
 
-     @tornado.testing.gen_test
-     def test_connect_pedantic(self):
-          nc = Client()
-          yield nc.connect({"pedantic": True})
+#      @tornado.testing.gen_test
+#      def test_connect_pedantic(self):
+#           nc = Client()
+#           yield nc.connect({"pedantic": True})
 
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
 
-     @tornado.testing.gen_test
-     def test_connect_missing_server(self):
-          nc = Client()
-          with self.assertRaises(Exception):
-               yield nc.connect({"servers": ["nats://127.0.0.1:4223"]})
+#      @tornado.testing.gen_test
+#      def test_connect_missing_server(self):
+#           nc = Client()
+#           with self.assertRaises(Exception):
+#                yield nc.connect({"servers": ["nats://127.0.0.1:4223"]})
 
-     @tornado.testing.gen_test
-     def test_publish(self):
-          nc = Client()
-          yield nc.connect({"pedantic": True})
-          self.assertEqual(Client.CONNECTED, nc._status)
-          info_keys = nc._server_info.keys()
-          self.assertTrue(len(info_keys) > 0)
-          yield nc.publish("one", "hello")
-          yield nc.publish("two", "world")
+#      @tornado.testing.gen_test
+#      def test_publish(self):
+#           nc = Client()
+#           yield nc.connect({"pedantic": True})
+#           self.assertEqual(Client.CONNECTED, nc._status)
+#           info_keys = nc._server_info.keys()
+#           self.assertTrue(len(info_keys) > 0)
+#           yield nc.publish("one", "hello")
+#           yield nc.publish("two", "world")
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
 
@@ -187,9 +188,9 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           self.assertEqual(10, connz['in_bytes'])
 
           # Force disconnect...
-          nc.io.close()
-          nc._unbind()
-          http.close()
+          # nc.io.close()
+          # nc._unbind()
+          # http.close()
 
           # TODO: Test reconnect with another server
           try:

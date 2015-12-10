@@ -89,8 +89,8 @@ class Parser(object):
 
         # PONG
         elif self.scratch.startswith(PONG):
-          if len(self.nc._pongs) > 0:
-            self.nc._process_pong()
+          self.nc._process_pong()
+
           if len(self.scratch) > PONG_SIZE:
             self.scratch = self.scratch[PONG_SIZE:]
           else:

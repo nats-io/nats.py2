@@ -9,6 +9,7 @@ import tornado.concurrent
 import tornado.escape
 import tornado.gen
 import tornado.ioloop
+from  tornado.locks import Semaphore
 
 from random import shuffle
 from urlparse import urlparse
@@ -32,7 +33,7 @@ DEFAULT_TIMEOUT = 2 * 1000 # in ms
 DEFAULT_READ_BUFFER_SIZE = 32768
 DEFAULT_WRITE_BUFFER_SIZE = 32768
 DEFAULT_READ_CHUNK_SIZE = 65536
-DEFAULT_PENDING_SIZE = 1024 * 1024
+DEFAULT_MAX_PENDING_SIZE = 32768
 
 # Reconnection logic.
 MAX_RECONNECT_ATTEMPTS = 10
@@ -57,6 +58,7 @@ class Client(object):
     self._status = Client.DISCONNECTED
     self._server_pool = []
     self._current_server = None
+    # self._mu = Semaphore(1)
     self._pending = b''
     self.io = None
 
@@ -74,33 +76,36 @@ class Client(object):
     self._pongs_received = 0
     self._pongs = []
 
-    # TODO: Error callback, disconnected callback.
+    self._error_cb = None
+    self._close_cb = None
+    self._disconnected_cb = None
 
   @tornado.gen.coroutine
   def connect(self, opts={}):
     """
-    Establishes an async connection to a NATS servers, the connection can be
-    customized via an optional dictionary.
+    Establishes a connection to a NATS server.
 
-       # NATS cluster usage
+    Examples:
+
+       # Configure pool of NATS servers.
        nc = nats.io.client.Client()
        yield nc.connect({ 'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
 
-       # If using a authentication, user and pass are to be passed on the uri.
+       # User and pass are to be passed on the uri to authenticate.
        yield nc.connect({ 'servers': ['nats://hello:world@192.168.1.10:4222'] })
 
     """
-
     # Default options
     self.options["servers"]  = opts["servers"]  if "servers"  in opts else []
-
-    # TODO: Handle acks similar to pongs?
     self.options["verbose"]  = opts["verbose"]  if "verbose"  in opts else False
     self.options["pedantic"] = opts["pedantic"] if "pedantic" in opts else False
     self.options["ping_interval"] = opts["ping_interval"] if "ping_interval" in opts else DEFAULT_PING_INTERVAL
     self.options["max_outstanding_pings"] = opts["max_outstanding_pings"] if "max_outstanding_pings" in opts else MAX_OUTSTANDING_PINGS
     self.options["dont_randomize"] = opts["dont_randomize"] if "dont_randomize" in opts else False
     self.options["allow_reconnect"] = opts["allow_reconnect"] if "allow_reconnect" in opts else True
+    self._close_cb = opts["close_cb"] if "close_cb" in opts else None
+    self._error_cb = opts["error_cb"] if "error_cb" in opts else None
+    self._disconnected_cb = opts["disconnected_cb"] if "disconnected_cb" in opts else None
 
     if "servers" not in opts or len(self.options["servers"]) < 1:
       srv = Srv(urlparse("nats://127.0.0.1:4222"))
@@ -118,12 +123,22 @@ class Client(object):
       self._current_server = s
       self.io.set_close_callback(self._unbind)
     except Exception, e:
+      self._err = e
+      if self._error_cb is not None:
+        self._error_cb(e)
       yield self._schedule_primary_and_connect()
+
+    self._status = Client.CONNECTING
+    yield self._process_connect_init()
+    yield self.flush()
 
     # First time connecting to NATS so if there were no errors,
     # we can consider to be connected at this point.
-    yield self._process_connect_init()
     self._status = Client.CONNECTED
+
+    # Prepare the ping pong interval callback.
+    self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, self.options["ping_interval"])
+    self._ping_timer.start()
 
   @tornado.gen.coroutine
   def _server_connect(self, s):
@@ -141,19 +156,16 @@ class Client(object):
     yield self.io.connect((s.uri.hostname, s.uri.port))
 
   @tornado.gen.coroutine
-  def _send_ping(self, future=tornado.concurrent.Future()):
+  def _send_ping(self, future=None):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
       self._unbind()
-      # TODO: Closing state
-      # TODO: Check if we are already reconnecting or should reconnect.
-      # self._status = Client.RECONNECTING
-      # TODO: Prepare to handle reconnect.
-      # self.io.close()
-      # TODO: Cancel pings interval.
     else:
+      # with (yield self._mu.acquire()):
+      yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
+      if future is None:
+        future = tornado.concurrent.Future()
       self._pings_outstanding += 1
       self._pongs.append(future)
-      self.send_command("{0}{1}".format(PING_OP, _CRLF_))
 
   def connect_command(self):
     """
@@ -181,19 +193,24 @@ class Client(object):
     """
     Flushes a command to the server as a bytes payload.
     """
-    self.io.write(cmd)
+    self._pending += cmd
+    if self.is_connected() or self.is_connecting() or self.is_reconnecting() or len(self._pending) > DEFAULT_MAX_PENDING_SIZE:
+      yield self._flush_pending()
 
   def _publish(self, subject, reply, payload):
+    pub_cmd = b'{0} {1} {2} {3} {4}{5}{6}'.format(PUB_OP, subject, reply, len(payload), _CRLF_, payload, _CRLF_)
+    self.send_command(pub_cmd)
 
-    # TODO: Check that we are still connected.
-    # TODO: In case there has been an error just return the error as well.
-    if self._err != None:
-      return self._err
-
-    pub_args = "{0} {1} {2} {3} {4}".format(PUB_OP, subject, reply, len(payload), _CRLF_)
-    self.io.write(pub_args)
-    self.io.write(payload)
-    self.io.write(_CRLF_)
+  @tornado.gen.coroutine
+  def _flush_pending(self,loud=False):
+    try:
+      yield self.io.write(self._pending)
+    except (tornado.iostream.StreamClosedError, tornado.iostream.StreamBufferFullError, tornado.iostream.UnsatisfiableReadError), e:
+      self._err = e
+      if self._error_cb is not None:
+        self._error_cb(e)
+    finally:
+      self._pending = b''
 
   @tornado.gen.coroutine
   def publish(self, subject, payload):
@@ -223,8 +240,8 @@ class Client(object):
   @tornado.gen.coroutine
   def flush(self,timeout=5000):
     """
-    Flush will perform a round trip to the server and return when it
-    receives the internal reply.
+    Flush will perform a round trip to the server and return True
+    when it receives the internal reply or raise a Timeout error.
     """
     self._flush_timeout(timeout)
 
@@ -240,10 +257,11 @@ class Client(object):
     raise tornado.gen.Return(result)
 
   @tornado.gen.coroutine
-  def request(self, subject, payload, callback=None):
+  def request(self, subject, payload, expected=1, callback=None):
     """
-    Implements the request/response via pub/sub and an ephemeral subscription
-    which will be published with a limited interest of 1 reply.
+    Implements the request/response pattern via pub/sub
+    using an ephemeral subscription which will be published
+    with a customizable limited interest.
 
        ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
        ->> UNSUB 90 1
@@ -254,15 +272,17 @@ class Client(object):
     """
     inbox = new_inbox()
     sid = yield self.subscribe(inbox, _EMPTY_, callback)
-    yield self.auto_unsubscribe(sid, 1)
+    yield self.auto_unsubscribe(sid, expected)
     yield self.publish_request(subject, inbox, payload)
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
   def timed_request(self, subject, payload, timeout=5000):
     """
-    Implements the request/response expecting a single response
-    on an inbox with a timeout by using futures instead of callbacks.
+    Implements the request/response pattern via pub/sub
+    using an ephemeral subscription which will be published
+    with a limited interest of 1 reply returning the response
+    or raising a Timeout error.
 
        ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
        ->> UNSUB 90 1
@@ -298,7 +318,7 @@ class Client(object):
     """
     Generates a SUB command given a Subscription and the subject sequence id.
     """
-    sub_cmd = "{0} {1} {2} {3}{4}".format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
+    sub_cmd = b'{0} {1} {2} {3}{4}'.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
     self.send_command(sub_cmd)
 
   @tornado.gen.coroutine
@@ -308,7 +328,7 @@ class Client(object):
     blocks in order to be able to define request/response semantics via pub/sub
     by announcing the server limited interest a priori.
     """
-    unsub_cmd = "{0} {1} {2}{3}".format(UNSUB_OP, sid, limit, _CRLF_)
+    unsub_cmd = b'{0} {1} {2}{3}'.format(UNSUB_OP, sid, limit, _CRLF_)
     self.send_command(unsub_cmd)
 
   def _process_ping(self):
@@ -319,17 +339,19 @@ class Client(object):
     """
     self.send_command(PONG)
 
+  @tornado.gen.coroutine
   def _process_pong(self):
     """
-    The client will be send a PING soon after CONNECT and then periodically
-    to the the server as a failure detector to close connections to unhealthy servers.
-    For each PING the client sends, we will add a respective PONG callback which
-    will be dispatched by the parser upon receving it.
+    The client will send a PING soon after CONNECT and then periodically
+    to the server as a failure detector to close connections to unhealthy servers.
+    For each PING the client sends, we will add a respective PONG future.
     """
-    future = self._pongs.pop(0)
-    future.set_result(True)
-    self._pongs_received += 1
-    self._pings_outstanding -= 1
+    # with (yield self._mu.acquire()):
+    if len(self._pongs) > 0:
+      future = self._pongs.pop()
+      future.set_result(True)
+      self._pongs_received += 1
+      self._pings_outstanding -= 1
 
   def _process_msg(self, msg):
     """
@@ -351,9 +373,6 @@ class Client(object):
     the CONNECTING to CONNECTED states when establishing a connection
     with the server.
     """
-    # TODO: Add readline timeout here upon connecting.
-    self._status = Client.CONNECTING
-
     # INFO {...}
     # TODO: Check for errors here.
     line = yield self.io.read_until(_CRLF_)
@@ -361,19 +380,16 @@ class Client(object):
     self._server_info = tornado.escape.json_decode((args))
 
     # CONNECT {...}
-    yield self.send_command(self.connect_command())
-
-    # Prepare the ping pong interval callback.
-    self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, DEFAULT_PING_INTERVAL)
-    self._ping_timer.start()
+    yield self.io.write(self.connect_command())
 
     # Parser reads directly from the same IO as the client.
     tornado.ioloop.IOLoop.instance().spawn_callback(self._ps.read)
 
     # Send a PING expecting a pong meaning that the server has processed
-    # all messages we have sent this far.  Reply from server should be handled
-    # by the parsing loop already at this point.
-    yield self.flush()
+    # all messages we have sent this far.  Reply from server should be
+    # handled by the parsing loop already at this point.
+    yield self._send_ping()
+    # yield self.flush()
 
   def _next_server(self):
     """
@@ -402,12 +418,18 @@ class Client(object):
   def is_connected(self):
     return self._status == Client.CONNECTED
 
+  def is_connecting(self):
+    return self._status == Client.CONNECTING
+
   @tornado.gen.coroutine
   def _unbind(self):
     """
     Unbind handles the disconnection from the server then
     attempts to reconnect if `allow_reconnect' is enabled.
     """
+    if self._close_cb is not None:
+      self._close_cb()
+
     if not self.options["allow_reconnect"]:
       self._process_disconnect()
       return
@@ -425,13 +447,28 @@ class Client(object):
         except ErrNoServers:
           self._process_disconnect()
 
-      yield self._process_connect_init()
+      try:
+        yield self._process_connect_init()
+      except Exception, e:
+        self._err = e
+        if self._error_cb is not None:
+          self._error_cb(e)
+        self._unbind()
 
       # Replay all the subscriptions in case there were some.
       for ssid, sub in self._subs.items():
         yield self._subscribe(sub, ssid)
 
-      # TODO: Flush all the pending bytes upon reconnect.
+      # If reconnecting, flush any pending bytes.
+      if len(self._pending) > 0:
+        yield self._flush_pending(True)
+
+      # Restart the ping pong interval callback.
+      self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, self.options["ping_interval"])
+      self._ping_timer.start()
+      self._err = None
+      self._pings_outstanding = 0
+      self._pongs = []
       self._status = Client.CONNECTED
 
   @tornado.gen.coroutine
@@ -446,8 +483,8 @@ class Client(object):
       s.reconnects += 1
 
       # For the reconnection logic, we need to consider
-      # sleeping for a bit before trying to reconnect too soon to a
-      # server which has failed previously.
+      # sleeping for a bit before trying to reconnect
+      # too soon to a server which has failed previously.
       yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout, timedelta(seconds=RECONNECT_TIME_WAIT))
       try:
         yield self._server_connect(s)
@@ -457,7 +494,7 @@ class Client(object):
         self.io.set_close_callback(self._unbind)
         return
       except Exception, e:
-        # Continue trying to connect until there is an available server
+        # Continue trying to connect until there is an available servern
         # or bail in case there are no more available servers.
         self._status = Client.RECONNECTING
         continue
@@ -466,16 +503,26 @@ class Client(object):
     """
     Does cleanup of the client state and tears down the connection.
     """
-    # TODO: Set to DISCONNECTED state
-    # TODO: Call disconnected callback
-    # TODO: Remove ping interval timer
+    self._status = Client.DISCONNECTED
+    if self._err is not None:
+      return
+
+    if self._disconnected_cb is not None:
+      self._disconnected_cb()
+
+    if self._ping_timer.is_running():
+      self._ping_timer.stop()
+
     # TODO: Close io if not done already
 
   def _process_err(self, err=None):
     """
-    Stores the last received error from the server.
+    Stores the last received error from the server
+    and dispatches the error callback.
     """
     self._err = err
+    if self._error_cb is not None:
+      self._error_cb(err)
 
 class Subscription(object):
 
