@@ -25,7 +25,7 @@ def go():
     try:
         options = {"verbose": False, "servers": ["nats://127.0.0.1:4225"]}
         yield nc.nc.connect(**options)
-    except Exception, e:
+    except:
         print("Error: could not establish connection to server", e)
         tornado.ioloop.IOLoop.instance().stop()
         return

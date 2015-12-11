@@ -4,8 +4,7 @@
 
 echo "*** PUB using NATS client."
 echo
-echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset | stream closed |"
-# TODO: Issues with 10000 bytes messages
+echo "| messages | bytes | duration | msgs/sec | max written | errors |"
 for nbytes in 1 10 100 1000; do 
   for messages in 100 1000 10000 100000 ; do
     python examples/bench/pub.py $messages $nbytes;  2> /dev/null
@@ -14,10 +13,10 @@ done
 echo
 echo
 
-echo "*** PUB using NATS client, unicode"
+echo "*** PUB using NATS client (unicode)."
 echo
-echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset | stream closed |"
-for nbytes in 1 10 100 1000 10000; do 
+echo "| messages | bytes | duration | msgs/sec | max written | errors |"
+for nbytes in 1 10 100 1000; do 
   for messages in 100 1000 10000 100000; do
     python examples/bench/pub-unicode.py $messages $nbytes;  2> /dev/null
   done;
@@ -25,41 +24,41 @@ done
 echo
 echo
 
-echo "*** PUB using NATS client with buffered writer (larger messages)."
-echo
-echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset |"
-for nbytes in 100000 1000000; do
-  for messages in 100 1000 10000; do
-    python examples/bench/pub.py $messages $nbytes;  2> /dev/null
-  done;
-done
+# echo "*** PUB using NATS (larger messages)."
+# echo
+# echo "| messages | bytes | duration | msgs/sec | max written | errors |"
+# for nbytes in 100000 1000000; do
+#   for messages in 100 1000 10000; do
+#     python examples/bench/pub.py $messages $nbytes;  2> /dev/null
+#   done;
+# done
 
-for nbytes in 5000000; do 
-  for messages in 2 ; do
-    python examples/bench/pub.py $messages $nbytes;  2> /dev/null
-  done;
-done
-echo
-echo
+# for nbytes in 5000000; do 
+#   for messages in 2 ; do
+#     python examples/bench/pub.py $messages $nbytes;  2> /dev/null
+#   done;
+# done
+# echo
+# echo
 
-echo "*** PUB using NATS client with buffered writer and coroutine."
+echo "*** PUB request."
 echo
 echo "| messages | bytes |         duration |      msgs/sec | max written |"
-for nbytes in 1 10 100 1000 10000; do 
+for nbytes in 1 10 100 1000; do 
   for messages in 100 1000 10000 ; do
     python examples/bench/pub-request.py $messages $nbytes;  2> /dev/null
   done;
 done
 
-for nbytes in 5000000; do 
-  for messages in 2 ; do
-    python examples/bench/pub-request.py $messages $nbytes;  2> /dev/null
-  done;
-done
-echo
-echo
+# for nbytes in 5000000; do 
+#   for messages in 2 ; do
+#     python examples/bench/pub-request.py $messages $nbytes;  2> /dev/null
+#   done;
+# done
+# echo
+# echo
 
-echo "*** Request/Response"
+echo "*** Request/Response."
 echo
 echo "| messages | bytes |         duration |      msgs/sec | max written | timeouts |"
 for nbytes in 1 10 100 1000 5000 ; do 
@@ -72,7 +71,7 @@ echo
 
 echo "** Reference benchmarks"
 echo 
-echo "*** PUB using raw python sockets, no buffered writer."
+echo "*** PUB using raw python sockets."
 echo
 echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset |"
 for nbytes in 1 10 100 1000 10000; do 
@@ -83,7 +82,7 @@ done
 echo
 echo
 
-echo "*** PUB using tornado IO, no buffered writer."
+echo "*** PUB using tornado IO."
 echo
 echo "| messages | bytes |         duration |      msgs/sec | max written | connection reset |"
 for nbytes in 1 10 100 1000 10000; do 

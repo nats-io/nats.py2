@@ -52,10 +52,7 @@ def go():
 
     for i in range(nc.max_messages):
         try:
-            # a = time.time()
             result = yield nc.nc.timed_request("help", line)            
-            # b = time.time()
-            # print("result: ", result, b - a)
             nc.total_written += 1
         except tornado.gen.TimeoutError, e:
             nc.timeouts += 1
