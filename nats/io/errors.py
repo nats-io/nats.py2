@@ -30,5 +30,5 @@ class ErrMaxPayload(Exception):
 class ErrNoServers(Exception):
     pass
 
-class ErrServerConnect(socket.error):
+class ErrServerConnect(Exception):
     pass

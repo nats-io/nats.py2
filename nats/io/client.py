@@ -24,20 +24,17 @@ _CRLF_       = b'\r\n'
 _SPC_        = b' '
 _EMPTY_      = b''
 
-# Ping interval
-DEFAULT_PING_INTERVAL = 120 * 1000 # in ms
-MAX_OUTSTANDING_PINGS = 2
-DEFAULT_TIMEOUT = 2 * 1000 # in ms
 
-# TODO: Make buffers optional
-DEFAULT_READ_BUFFER_SIZE = 32768
+# Defaults
+DEFAULT_TIMEOUT           = 2 * 1000 # in ms
+DEFAULT_READ_BUFFER_SIZE  = 32768
 DEFAULT_WRITE_BUFFER_SIZE = 32768
-DEFAULT_READ_CHUNK_SIZE = 65536
-DEFAULT_MAX_PENDING_SIZE = 32768
-
-# Reconnection logic.
-MAX_RECONNECT_ATTEMPTS = 10
-RECONNECT_TIME_WAIT = 2 # in seconds
+DEFAULT_READ_CHUNK_SIZE   = 32768
+DEFAULT_MAX_PENDING_SIZE  = 32768
+DEFAULT_PING_INTERVAL     = 120 * 1000 # in ms
+MAX_OUTSTANDING_PINGS     = 2
+MAX_RECONNECT_ATTEMPTS    = 10
+RECONNECT_TIME_WAIT       = 2  # in seconds
 
 class Client(object):
 
@@ -58,7 +55,6 @@ class Client(object):
     self._status = Client.DISCONNECTED
     self._server_pool = []
     self._current_server = None
-    # self._mu = Semaphore(1)
     self._pending = b''
     self.io = None
 
@@ -126,11 +122,13 @@ class Client(object):
       self._err = e
       if self._error_cb is not None:
         self._error_cb(e)
+      if not self.options["allow_reconnect"]:
+        raise ErrNoServers
       yield self._schedule_primary_and_connect()
 
     self._status = Client.CONNECTING
     yield self._process_connect_init()
-    yield self.flush()
+    # yield self.flush()
 
     # First time connecting to NATS so if there were no errors,
     # we can consider to be connected at this point.
@@ -147,7 +145,7 @@ class Client(object):
     """
     self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._socket.setblocking(0)
-    self._socket.settimeout(5.0)
+    self._socket.settimeout(1.0)
     self.io = tornado.iostream.IOStream(self._socket,
                                         max_buffer_size=DEFAULT_READ_BUFFER_SIZE,
                                         read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
@@ -158,9 +156,8 @@ class Client(object):
   @tornado.gen.coroutine
   def _send_ping(self, future=None):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
-      self._unbind()
+      yield self._unbind()
     else:
-      # with (yield self._mu.acquire()):
       yield self.send_command("{0}{1}".format(PING_OP, _CRLF_))
       if future is None:
         future = tornado.concurrent.Future()
@@ -168,18 +165,18 @@ class Client(object):
       self._pongs.append(future)
 
   def connect_command(self):
-    """
+    '''
     Generates a JSON string with the params to be used
     when sending CONNECT to the server.
 
       ->> CONNECT {"verbose": false, "pedantic": false, "lang": "python2" }
 
-    """
+    '''
     options = {
       "verbose":  self.options["verbose"],
       "pedantic": self.options["pedantic"],
-      "lang": __lang__,
-      "version": __version__
+      "lang":     __lang__,
+      "version":  __version__
     }
     if "auth_required" in self._server_info:
       if self._server_info["auth_required"] == True:
@@ -261,7 +258,7 @@ class Client(object):
     """
     Implements the request/response pattern via pub/sub
     using an ephemeral subscription which will be published
-    with a customizable limited interest.
+    with customizable limited interest.
 
        ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
        ->> UNSUB 90 1
@@ -277,7 +274,7 @@ class Client(object):
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
-  def timed_request(self, subject, payload, timeout=5000):
+  def timed_request(self, subject, payload, timeout=500):
     """
     Implements the request/response pattern via pub/sub
     using an ephemeral subscription which will be published
@@ -353,6 +350,7 @@ class Client(object):
       self._pongs_received += 1
       self._pings_outstanding -= 1
 
+  @tornado.gen.coroutine
   def _process_msg(self, msg):
     """
     Dispatches the received message to the stored subscription.
@@ -374,7 +372,6 @@ class Client(object):
     with the server.
     """
     # INFO {...}
-    # TODO: Check for errors here.
     line = yield self.io.read_until(_CRLF_)
     _, args = line.split(INFO_OP + _SPC_, 1)
     self._server_info = tornado.escape.json_decode((args))
@@ -403,7 +400,6 @@ class Client(object):
 
     s = None
     for server in self._server_pool:
-      # TODO: Reset max reconnects with a server after some time?
       if server.reconnects > MAX_RECONNECT_ATTEMPTS:
         continue
       s = server
@@ -453,7 +449,7 @@ class Client(object):
         self._err = e
         if self._error_cb is not None:
           self._error_cb(e)
-        self._unbind()
+        # yield self._unbind()
 
       # Replay all the subscriptions in case there were some.
       for ssid, sub in self._subs.items():
@@ -485,16 +481,17 @@ class Client(object):
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect
       # too soon to a server which has failed previously.
-      yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout, timedelta(seconds=RECONNECT_TIME_WAIT))
+      yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout,
+                             timedelta(seconds=RECONNECT_TIME_WAIT))
       try:
         yield self._server_connect(s)
 
-        # Reset number of reconnects upon successful connection
+        # Reset number of reconnects upon successful connection.
         s.reconnects = 0
         self.io.set_close_callback(self._unbind)
         return
       except Exception, e:
-        # Continue trying to connect until there is an available servern
+        # Continue trying to connect until there is an available server
         # or bail in case there are no more available servers.
         self._status = Client.RECONNECTING
         continue
@@ -513,7 +510,7 @@ class Client(object):
     if self._ping_timer.is_running():
       self._ping_timer.stop()
 
-    # TODO: Close io if not done already
+    self.io.close()
 
   def _process_err(self, err=None):
     """
@@ -523,6 +520,9 @@ class Client(object):
     self._err = err
     if self._error_cb is not None:
       self._error_cb(err)
+
+  def last_error(self):
+    return self._err
 
 class Subscription(object):
 
