@@ -9,7 +9,6 @@ import tornado.concurrent
 import tornado.escape
 import tornado.gen
 import tornado.ioloop
-from  tornado.locks import Semaphore
 
 from random import shuffle
 from urlparse import urlparse
@@ -51,12 +50,13 @@ class Client(object):
     self._server_info = {}
 
     # Client connection state and clustering.
+    self.io = None
     self._socket = None
     self._status = Client.DISCONNECTED
     self._server_pool = []
     self._current_server = None
     self._pending = b''
-    self.io = None
+    self._loop = None
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -77,7 +77,19 @@ class Client(object):
     self._disconnected_cb = None
 
   @tornado.gen.coroutine
-  def connect(self, opts={}):
+  def connect(self,
+              servers=[],
+              verbose=False,
+              pedantic=False,
+              ping_interval=DEFAULT_PING_INTERVAL,
+              max_outstanding_pings=MAX_OUTSTANDING_PINGS,
+              dont_randomize=False,
+              allow_reconnect=True,
+              close_cb=None,
+              error_cb=None,
+              disconnected_cb=None,
+              io_loop=tornado.ioloop.IOLoop.instance()
+              ):
     """
     Establishes a connection to a NATS server.
 
@@ -91,19 +103,19 @@ class Client(object):
        yield nc.connect({ 'servers': ['nats://hello:world@192.168.1.10:4222'] })
 
     """
-    # Default options
-    self.options["servers"]  = opts["servers"]  if "servers"  in opts else []
-    self.options["verbose"]  = opts["verbose"]  if "verbose"  in opts else False
-    self.options["pedantic"] = opts["pedantic"] if "pedantic" in opts else False
-    self.options["ping_interval"] = opts["ping_interval"] if "ping_interval" in opts else DEFAULT_PING_INTERVAL
-    self.options["max_outstanding_pings"] = opts["max_outstanding_pings"] if "max_outstanding_pings" in opts else MAX_OUTSTANDING_PINGS
-    self.options["dont_randomize"] = opts["dont_randomize"] if "dont_randomize" in opts else False
-    self.options["allow_reconnect"] = opts["allow_reconnect"] if "allow_reconnect" in opts else True
-    self._close_cb = opts["close_cb"] if "close_cb" in opts else None
-    self._error_cb = opts["error_cb"] if "error_cb" in opts else None
-    self._disconnected_cb = opts["disconnected_cb"] if "disconnected_cb" in opts else None
+    self.options["servers"]  = servers
+    self.options["verbose"]  = verbose
+    self.options["pedantic"] = pedantic
+    self.options["ping_interval"] = ping_interval
+    self.options["max_outstanding_pings"] = max_outstanding_pings
+    self.options["dont_randomize"] = dont_randomize
+    self.options["allow_reconnect"] = allow_reconnect
+    self._close_cb = close_cb
+    self._error_cb = error_cb
+    self._disconnected_cb = disconnected_cb
+    self._loop = io_loop
 
-    if "servers" not in opts or len(self.options["servers"]) < 1:
+    if len(self.options["servers"]) < 1:
       srv = Srv(urlparse("nats://127.0.0.1:4222"))
       self._server_pool.append(srv)
     else:
@@ -128,6 +140,7 @@ class Client(object):
 
     self._status = Client.CONNECTING
     yield self._process_connect_init()
+    # error while debugging messages......
     # yield self.flush()
 
     # First time connecting to NATS so if there were no errors,
@@ -297,7 +310,7 @@ class Client(object):
     raise tornado.gen.Return(msg)
 
   @tornado.gen.coroutine
-  def subscribe(self, subject="", queue="", callback=None, future=None):
+  def subscribe(self, subject="", queue="", cb=None, future=None):
     """
     Sends a SUB command to the server. Takes a queue parameter which can be used
     in case of distributed queues or left empty if it is not the case, and a callback
@@ -305,7 +318,7 @@ class Client(object):
     """
     self._ssid += 1
     sid = self._ssid
-    sub = Subscription(subject=subject, queue=queue, callback=callback, future=future)
+    sub = Subscription(subject=subject, queue=queue, cb=cb, future=future)
     self._subs[sid] = sub
     yield self._subscribe(sub, sid)
     raise tornado.gen.Return(sid)
@@ -343,7 +356,6 @@ class Client(object):
     to the server as a failure detector to close connections to unhealthy servers.
     For each PING the client sends, we will add a respective PONG future.
     """
-    # with (yield self._mu.acquire()):
     if len(self._pongs) > 0:
       future = self._pongs.pop()
       future.set_result(True)
@@ -354,13 +366,13 @@ class Client(object):
   def _process_msg(self, msg):
     """
     Dispatches the received message to the stored subscription.
-    It first tries to detect whether the message should be dispatched
-    to a passed callback.  In case there was not a callback,
-    then it tries to set the message into a future.
+    It first tries to detect whether the message should be
+    dispatched to a passed callback.  In case there was not
+    a callback, then it tries to set the message into a future.
     """
     sub = self._subs[msg.sid]
-    if sub.callback is not None:
-      sub.callback(msg)
+    if sub.cb is not None:
+      sub.cb(msg)
     elif sub.future is not None:
       sub.future.set_result(msg)
 
@@ -380,13 +392,13 @@ class Client(object):
     yield self.io.write(self.connect_command())
 
     # Parser reads directly from the same IO as the client.
-    tornado.ioloop.IOLoop.instance().spawn_callback(self._ps.read)
+    self._loop.spawn_callback(self._ps.read)
 
     # Send a PING expecting a pong meaning that the server has processed
     # all messages we have sent this far.  Reply from server should be
     # handled by the parsing loop already at this point.
-    yield self._send_ping()
-    # yield self.flush()
+    # yield self._send_ping()
+    yield self.flush()
 
   def _next_server(self):
     """
@@ -481,7 +493,7 @@ class Client(object):
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect
       # too soon to a server which has failed previously.
-      yield tornado.gen.Task(tornado.ioloop.IOLoop.instance().add_timeout,
+      yield tornado.gen.Task(self._loop.add_timeout,
                              timedelta(seconds=RECONNECT_TIME_WAIT))
       try:
         yield self._server_connect(s)
@@ -529,7 +541,7 @@ class Subscription(object):
   def __init__(self, **kwargs):
     self.subject  = kwargs["subject"]
     self.queue    = kwargs["queue"]
-    self.callback = kwargs["callback"]
+    self.cb       = kwargs["cb"]
     self.future   = kwargs["future"]
     self.received = 0
 
