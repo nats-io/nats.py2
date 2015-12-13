@@ -13,10 +13,10 @@
 - [X] benchmarks
 - [X] error, close, disconnected callbacks,
 - [X] pending data buffering on reconnect
+- [X] client connection stats
+- [X] Improved tests
 - [ ] performance issues handling on larger messages
-- [ ] client connection stats
 - [ ] check len of control line in parser
 - [ ] follow size of max payload
 - [ ] TLS
 - [ ] Travis builds
-- [ ] Improved tests

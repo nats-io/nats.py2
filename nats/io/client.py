@@ -23,7 +23,6 @@ _CRLF_       = b'\r\n'
 _SPC_        = b' '
 _EMPTY_      = b''
 
-
 # Defaults
 DEFAULT_TIMEOUT           = 2 * 1000 # in ms
 DEFAULT_READ_BUFFER_SIZE  = 32768
@@ -57,6 +56,13 @@ class Client(object):
     self._current_server = None
     self._pending = b''
     self._loop = None
+    self.stats = {
+      'in_msgs':    0,
+      'out_msgs':   0,
+      'in_bytes':   0,
+      'out_bytes':  0,
+      'reconnects': 0
+    }
 
     # Storage and monotonically increasing index for subscription callbacks.
     self._subs = {}
@@ -140,8 +146,6 @@ class Client(object):
 
     self._status = Client.CONNECTING
     yield self._process_connect_init()
-    # error while debugging messages......
-    # yield self.flush()
 
     # First time connecting to NATS so if there were no errors,
     # we can consider to be connected at this point.
@@ -208,7 +212,10 @@ class Client(object):
       yield self._flush_pending()
 
   def _publish(self, subject, reply, payload):
-    pub_cmd = b'{0} {1} {2} {3} {4}{5}{6}'.format(PUB_OP, subject, reply, len(payload), _CRLF_, payload, _CRLF_)
+    payload_size = len(payload)
+    pub_cmd = b'{0} {1} {2} {3} {4}{5}{6}'.format(PUB_OP, subject, reply, payload_size, _CRLF_, payload, _CRLF_)
+    self.stats['out_msgs']  += 1
+    self.stats['out_bytes'] += payload_size
     self.send_command(pub_cmd)
 
   @tornado.gen.coroutine
@@ -357,7 +364,7 @@ class Client(object):
     For each PING the client sends, we will add a respective PONG future.
     """
     if len(self._pongs) > 0:
-      future = self._pongs.pop()
+      future = self._pongs.pop(0)
       future.set_result(True)
       self._pongs_received += 1
       self._pings_outstanding -= 1
@@ -375,6 +382,8 @@ class Client(object):
       sub.cb(msg)
     elif sub.future is not None:
       sub.future.set_result(msg)
+    self.stats['in_msgs']  += 1
+    self.stats['in_bytes'] += len(msg.data)
 
   @tornado.gen.coroutine
   def _process_connect_init(self):
@@ -394,10 +403,10 @@ class Client(object):
     # Parser reads directly from the same IO as the client.
     self._loop.spawn_callback(self._ps.read)
 
-    # Send a PING expecting a pong meaning that the server has processed
-    # all messages we have sent this far.  Reply from server should be
-    # handled by the parsing loop already at this point.
-    # yield self._send_ping()
+    # Send a PING expecting a PONG to make a roundtrip to the server
+    # and assert that sent messages sent this far have been processed.
+    # Reply from server should be handled by the parsing loop already
+    # at this point.
     yield self.flush()
 
   def _next_server(self):
@@ -489,6 +498,7 @@ class Client(object):
       if s is None:
         raise ErrNoServers
       s.reconnects += 1
+      self.stats['reconnects'] += 1
 
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect
@@ -496,6 +506,7 @@ class Client(object):
       yield tornado.gen.Task(self._loop.add_timeout,
                              timedelta(seconds=RECONNECT_TIME_WAIT))
       try:
+        self._current_server = s
         yield self._server_connect(s)
 
         # Reset number of reconnects upon successful connection.
