@@ -34,7 +34,8 @@ def main():
     nc = NATS()
 
     # Establish connection to the server.
-    yield nc.connect({ "verbose": True, "servers": ["nats://127.0.0.1:4222"] })
+    options = { "verbose": True, "servers": ["nats://127.0.0.1:4222"] }
+    yield nc.connect(**options)
 
     def discover(msg=None):
         print("[Received]: %s" % msg.data)
@@ -65,6 +66,12 @@ def main():
     except tornado.gen.TimeoutError, e:
         print("Timeout! Need to retry...")
 
+    # Customize number of responses to receive
+    def many_responses(msg=None):
+        print("[Response]: %s" % msg.data)
+
+    yield nc.request("help", "please", expected=2, cb=many_responses)
+
     # Publish inbox
     my_inbox = new_inbox()
     yield nc.subscribe(my_inbox)
@@ -75,7 +82,7 @@ def main():
     try:
         start = datetime.now()
         # Make roundtrip to the server and timeout after 1000 ms
-        yield nc.flush(1)
+        yield nc.flush(1000)
         end = datetime.now()
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
@@ -83,7 +90,6 @@ def main():
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
-
 ```
 
 ## Examples

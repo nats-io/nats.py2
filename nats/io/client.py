@@ -275,7 +275,7 @@ class Client(object):
     raise tornado.gen.Return(result)
 
   @tornado.gen.coroutine
-  def request(self, subject, payload, expected=1, callback=None):
+  def request(self, subject, payload, expected=1, cb=None):
     """
     Implements the request/response pattern via pub/sub
     using an ephemeral subscription which will be published
@@ -289,7 +289,7 @@ class Client(object):
 
     """
     inbox = new_inbox()
-    sid = yield self.subscribe(inbox, _EMPTY_, callback)
+    sid = yield self.subscribe(inbox, _EMPTY_, cb)
     yield self.auto_unsubscribe(sid, expected)
     yield self.publish_request(subject, inbox, payload)
     raise tornado.gen.Return(sid)

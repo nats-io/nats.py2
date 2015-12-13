@@ -63,7 +63,13 @@ class ProtocolParserTest(unittest.TestCase):
         def payload_test(msg):
           self.assertEqual(msg["data"], expected)
 
-        sub = Subscription(subject="hello", queue=None, callback=payload_test, future=None)
+        params = {
+             "subject": "hello",
+             "queue": None,
+             "cb": payload_test,
+             "future": None
+             }
+        sub = Subscription(**params)
         nc._subs[1] = sub
         ps = Parser(nc)
         data = b'MSG hello 1 world 12\r\n'
@@ -101,7 +107,7 @@ class ProtocolParserTest(unittest.TestCase):
 
     def test_parse_err(self):
         ps = Parser(MockNatsClient())
-        data = b"-ERR 'Slow consumer'\r\n"
+        data = b"-ERR 'Slow Consumer'\r\n"
         ps.parse(data)
         self.assertEqual(len(ps.scratch), 0)
         self.assertEqual(ps.state, AWAITING_CONTROL_LINE)
@@ -115,4 +121,4 @@ class ProtocolParserTest(unittest.TestCase):
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
-    unittest.main(verbosity=1, exit=False, testRunner=runner)
+    unittest.main(verbosity=2, exit=False, testRunner=runner)
