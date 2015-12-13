@@ -32,9 +32,7 @@ AWAITING_MSG_ARG        = 2
 AWAITING_MSG_PAYLOAD    = 3
 AWAITING_MSG_END        = 4
 AWAITING_MINUS_ERR_ARG  = 5
-
-SCRATCH_SIZE = 512
-MAX_CONTROL_LINE_SIZE = 1024
+MAX_CONTROL_LINE_SIZE   = 1024
 
 class Msg(object):
 
@@ -56,10 +54,10 @@ class Parser(object):
   def read(self, data=''):
     """
     Read loop for gathering bytes from the server in a buffer
-    of maximum SCRATCH_SIZE, then received bytes are streamed
+    of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
     to the parsing callback for processing.
     """
-    self.nc.io.read_bytes(SCRATCH_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
+    self.nc.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
 
   def parse(self, data=''):
     """

@@ -61,7 +61,8 @@ class Client(object):
       'out_msgs':   0,
       'in_bytes':   0,
       'out_bytes':  0,
-      'reconnects': 0
+      'reconnects': 0,
+      'errors_received': 0
     }
 
     # Storage and monotonically increasing index for subscription callbacks.
@@ -136,7 +137,7 @@ class Client(object):
       yield self._server_connect(s)
       self._current_server = s
       self.io.set_close_callback(self._unbind)
-    except Exception, e:
+    except Exception as e:
       self._err = e
       if self._error_cb is not None:
         self._error_cb(e)
@@ -378,6 +379,7 @@ class Client(object):
     a callback, then it tries to set the message into a future.
     """
     sub = self._subs[msg.sid]
+    # sub.received += 1
     if sub.cb is not None:
       sub.cb(msg)
     elif sub.future is not None:
@@ -466,7 +468,7 @@ class Client(object):
 
       try:
         yield self._process_connect_init()
-      except Exception, e:
+      except Exception as e:
         self._err = e
         if self._error_cb is not None:
           self._error_cb(e)
@@ -513,7 +515,7 @@ class Client(object):
         s.reconnects = 0
         self.io.set_close_callback(self._unbind)
         return
-      except Exception, e:
+      except Exception as e:
         # Continue trying to connect until there is an available server
         # or bail in case there are no more available servers.
         self._status = Client.RECONNECTING
@@ -540,7 +542,17 @@ class Client(object):
     Stores the last received error from the server
     and dispatches the error callback.
     """
-    self._err = err
+    self.stats['errors_received'] += 1
+
+    if err == "'Authorization Violation'":
+      self._err = ErrAuthorization
+    elif err == "'Slow Consumer'":
+      self._err = ErrSlowConsumer
+    elif err == "'Stale Connection'":
+      self._err = ErrStaleConnection
+    else:
+      self._err = Exception(err)
+
     if self._error_cb is not None:
       self._error_cb(err)
 
@@ -554,7 +566,7 @@ class Subscription(object):
     self.queue    = kwargs["queue"]
     self.cb       = kwargs["cb"]
     self.future   = kwargs["future"]
-    self.received = 0
+    # self.received = 0
 
 class Srv(object):
   """

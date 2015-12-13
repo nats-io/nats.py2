@@ -16,7 +16,6 @@
 - [X] client connection stats
 - [X] Improved tests
 - [ ] performance issues handling on larger messages
-- [ ] check len of control line in parser
 - [ ] follow size of max payload
 - [ ] TLS
 - [ ] Travis builds

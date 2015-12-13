@@ -91,7 +91,7 @@ class Log():
 
      def persist(self, msg):
           if self.debug:
-               print("[\033[0;33mDEBUG\033[0;0m] Message received: [%s %s].".format(msg.subject, msg.reply))
+               print("[\033[0;33mDEBUG\033[0;0m] Message received: [{0} {1} {2}].".format(msg.subject, msg.reply, msg.data))
           self.records[msg.subject].append(msg)
 
 class ClientUtilsTest(unittest.TestCase):
@@ -365,6 +365,9 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                b = nc._current_server
                self.assertNotEqual(a.uri, b.uri)
 
+          self.assertTrue(nc.is_connected())
+          self.assertFalse(nc.is_reconnecting())
+
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:8224/connz')
           result = json.loads(response.body)
@@ -390,29 +393,52 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
      @tornado.testing.gen_test(timeout=10)
      def test_auth_connect_fails(self):
+
+          class Component:
+               def __init__(self, nc):
+                    self.nc = nc
+                    self.error = None
+                    self.error_cb_called = False
+                    self.close_cb_called = False
+                    self.disconnected_cb_called = False
+
+               def error_cb(self, err):
+                    self.error = err
+                    self.error_cb_called = True
+
+               def close_cb(self):
+                    self.close_cb_called = True
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
+
           nc = Client()
+          component = Component(nc)
           options = {
                "dont_randomize": True,
                "servers": [
                     "nats://foo:bar@127.0.0.1:4223",
                     "nats://foo2:bar2@127.0.0.1:4224"
                     ],
-               "io_loop": self.io_loop
+               "io_loop": self.io_loop,
+               "close_cb": component.close_cb,
+               "error_cb": component.error_cb,
+               "disconnected_cb": component.disconnected_cb
                }
-          yield nc.connect(**options)
+          yield component.nc.connect(**options)
+          self.assertEqual(True, component.nc.is_connected())
           self.assertEqual(True, nc._server_info["auth_required"])
 
-          log = Log()
-          sid_1 = yield nc.subscribe("foo",  "", log.persist)
+          log = Log(debug=True)
+          sid_1 = yield component.nc.subscribe("foo",  "", log.persist)
           self.assertEqual(sid_1, 1)
-          sid_2 = yield nc.subscribe("bar",  "", log.persist)
+          sid_2 = yield component.nc.subscribe("bar",  "", log.persist)
           self.assertEqual(sid_2, 2)
-          sid_3 = yield nc.subscribe("quux", "", log.persist)
+          sid_3 = yield component.nc.subscribe("quux", "", log.persist)
           self.assertEqual(sid_3, 3)
           yield nc.publish("foo", "hello")
-          yield tornado.gen.sleep(1.0)
-          self.assertEqual("hello", log.records['one'][0].data)
-          self.assertEqual("world", log.records['two'][0].data)
+          yield tornado.gen.sleep(1)
+          self.assertEqual("hello", log.records['foo'][0].data)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:8223/connz')
@@ -422,7 +448,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           self.assertEqual(1, connz['in_msgs'])
           self.assertEqual(5, connz['in_bytes'])
 
-          yield nc.publish("foo", "world")
+          yield component.nc.publish("foo", "world")
           yield tornado.gen.sleep(0.5)
           response = yield http.fetch('http://127.0.0.1:8223/connz')
           result = json.loads(response.body)
@@ -434,13 +460,24 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           orig_gnatsd = self.server_pool.pop(0)
           orig_gnatsd.finish()
 
-          # TODO: Test reconnect with another server.
+          # Reconnect with another server fails due to authorization error.
           try:
-               a = nc._current_server
+               a = component.nc._current_server
                yield tornado.gen.sleep(5)
           finally:
                b = nc._current_server
-               self.assertNotEqual(a.uri, b.uri)
+               self.assertEqual(a.uri, b.uri)
+
+          self.assertFalse(component.nc.is_connected())
+          self.assertTrue(component.nc.is_reconnecting())
+
+          # No guarantee in getting the error before the connection is closed,
+          # by the server though the behavior should be as below.
+          # self.assertEqual(1, component.nc.stats['errors_received'])
+          # self.assertEqual(ErrAuthorization, component.nc.last_error())
+          self.assertTrue(component.error_cb_called)
+          self.assertTrue(component.close_cb_called)
+          self.assertFalse(component.disconnected_cb_called)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
