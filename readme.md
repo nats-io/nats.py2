@@ -1,21 +1,27 @@
-# NATS - Python 2 Tornado based Client
+# NATS - Tornado based Python 2 Client
 
-A Python +2.6 async client for the [NATS messaging system](https://nats.io).
+A Python async client for the [NATS messaging system](https://nats.io).
+
+## Supported platforms
+
+Confirmed it to be compatible with following versions of [Python](https://www.python.org/)
+using [Tornado 4.2](https://github.com/tornadoweb/tornado/tree/v4.2.0)
+with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
+
+- 2.7.x
+- 2.6.x
 
 ## Getting Started
-
-Only dependency is Tornado so it must be installed first:
-
-```bash
-pip install tornado
-```
-
-Then:
 
 ```bash
 git clone https://github.com/nats-io/python-nats
 cd python-nats
-python setup.py install
+
+# Only dependency is Tornado so it must be installed first: 
+pip install tornado
+
+# OR using pip
+pip install -r requirements.txt
 ```
 
 ## Usage
