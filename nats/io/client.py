@@ -47,6 +47,7 @@ class Client(object):
 
     # INFO that we get upon connect from the server.
     self._server_info = {}
+    self._max_payload_size = 1048576
 
     # Client connection state and clustering.
     self.io = None
@@ -231,8 +232,7 @@ class Client(object):
       yield self._flush_pending()
       self._pending = b''
 
-  def _publish(self, subject, reply, payload):
-    payload_size = len(payload)
+  def _publish(self, subject, reply, payload, payload_size):
     pub_cmd = b'{0} {1} {2} {3} {4}{5}{6}'.format(PUB_OP, subject, reply, payload_size, _CRLF_, payload, _CRLF_)
     self.stats['out_msgs']  += 1
     self.stats['out_bytes'] += payload_size
@@ -262,7 +262,11 @@ class Client(object):
       <<- MSG hello 2 5
 
     """
-    self._publish(subject, _EMPTY_, payload)
+    payload_size = len(payload)
+    if payload_size > self._max_payload_size:
+      raise ErrMaxPayload
+
+    self._publish(subject, _EMPTY_, payload, payload_size)
 
   @tornado.gen.coroutine
   def publish_request(self, subject, reply, payload):
@@ -420,6 +424,7 @@ class Client(object):
     line = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
     _, args = line.split(INFO_OP + _SPC_, 1)
     self._server_info = tornado.escape.json_decode((args))
+    self._max_payload_size = self._server_info["max_payload"]
 
     # CONNECT {...}
     cmd = self.connect_command()

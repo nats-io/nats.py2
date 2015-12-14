@@ -270,6 +270,17 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(2, nc.stats['out_msgs'])
 
      @tornado.testing.gen_test
+     def test_publish_max_payload(self):
+          nc = Client()
+          yield nc.connect(io_loop=self.io_loop)
+          self.assertEqual(Client.CONNECTED, nc._status)
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+
+          with self.assertRaises(ErrMaxPayload):
+               yield nc.publish("large-message", "A" * (nc._server_info["max_payload"] * 2))
+
+     @tornado.testing.gen_test
      def test_publish_request(self):
           nc = Client()
 
