@@ -55,8 +55,6 @@ def go():
         except Exception, e:
             nc.stream_closed += 1
 
-    # TODO: Makes things slower...
-    # yield nc.nc.flush()
     nc.end_time = time.time()
     duration = nc.end_time - nc.start_time
     rate = nc.total_written / duration
