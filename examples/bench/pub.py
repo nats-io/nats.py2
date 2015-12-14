@@ -26,7 +26,8 @@ def go():
     nc = Client(Nats())
 
     try:
-        yield nc.nc.connect({"servers": ["nats://127.0.0.1:4225"]})
+        options = {"servers": ["nats://127.0.0.1:4225"]}
+        yield nc.nc.connect(**options)
     except Exception, e:
         print("Error: could not establish connection to server", e)
         return
