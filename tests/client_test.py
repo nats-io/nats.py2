@@ -108,6 +108,16 @@ class ClientUtilsTest(unittest.TestCase):
           expected = 'CONNECT {"lang": "python2", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
           self.assertEqual(expected, got)
 
+     def test_default_connect_command_with_name(self):
+          nc = Client()
+          nc.options["verbose"] = False
+          nc.options["pedantic"] = False
+          nc.options["auth_required"] = False
+          nc.options["name"] = "secret"
+          got = nc.connect_command()
+          expected = 'CONNECT {"lang": "python2", "name": "secret", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
+          self.assertEqual(expected, got)
+
      def tests_generate_new_inbox(self):
           inbox = new_inbox()
           self.assertTrue(inbox.startswith(INBOX_PREFIX))

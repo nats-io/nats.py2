@@ -88,6 +88,7 @@ class Client(object):
               servers=[],
               verbose=False,
               pedantic=False,
+              name=None,
               ping_interval=DEFAULT_PING_INTERVAL,
               max_outstanding_pings=MAX_OUTSTANDING_PINGS,
               dont_randomize=False,
@@ -113,10 +114,12 @@ class Client(object):
     self.options["servers"]  = servers
     self.options["verbose"]  = verbose
     self.options["pedantic"] = pedantic
+    self.options["name"] = name
     self.options["ping_interval"] = ping_interval
     self.options["max_outstanding_pings"] = max_outstanding_pings
     self.options["dont_randomize"] = dont_randomize
     self.options["allow_reconnect"] = allow_reconnect
+
     self._close_cb = close_cb
     self._error_cb = error_cb
     self._disconnected_cb = disconnected_cb
@@ -200,6 +203,9 @@ class Client(object):
       if self._server_info["auth_required"] == True:
         options["user"] = self._current_server.uri.username
         options["pass"] = self._current_server.uri.password
+    if self.options["name"] is not None:
+      options["name"] = self.options["name"]
+
     args = json.dumps(options, sort_keys=True)
     return b'{0} {1}{2}'.format(CONNECT_OP, args, _CRLF_)
 
