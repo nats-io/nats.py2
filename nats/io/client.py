@@ -265,7 +265,8 @@ class Client(object):
     payload_size = len(payload)
     if payload_size > self._max_payload_size:
       raise ErrMaxPayload
-
+    if self.is_closed():
+      raise ErrConnectionClosed
     self._publish(subject, _EMPTY_, payload, payload_size)
 
   @tornado.gen.coroutine
@@ -279,7 +280,12 @@ class Client(object):
        <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
-    self._publish(subject, reply, payload)
+    payload_size = len(payload)
+    if payload_size > self._max_payload_size:
+      raise ErrMaxPayload
+    if self.is_closed():
+      raise ErrConnectionClosed
+    self._publish(subject, reply, payload, payload_size)
 
   @tornado.gen.coroutine
   def flush(self,timeout=5000):
@@ -287,6 +293,8 @@ class Client(object):
     Flush will perform a round trip to the server and return True
     when it receives the internal reply or raise a Timeout error.
     """
+    if self.is_closed():
+      raise ErrConnectionClosed
     yield self._flush_timeout(timeout)
 
   @tornado.gen.coroutine
@@ -314,6 +322,9 @@ class Client(object):
        <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
+    if self.is_closed():
+      raise ErrConnectionClosed
+
     inbox = new_inbox()
     sid = yield self.subscribe(inbox, _EMPTY_, cb)
     yield self.auto_unsubscribe(sid, expected)
@@ -335,6 +346,9 @@ class Client(object):
        <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
+    if self.is_closed():
+      raise ErrConnectionClosed
+
     inbox = new_inbox()
     future = tornado.concurrent.Future()
     sid = yield self.subscribe(inbox, _EMPTY_, None, future)
@@ -478,7 +492,7 @@ class Client(object):
     Unbind handles the disconnection from the server then
     attempts to reconnect if `allow_reconnect' is enabled.
     """
-    if self.is_reconnecting():
+    if self.is_reconnecting() or self.is_closed():
       return
 
     if self._close_cb is not None:
@@ -500,6 +514,7 @@ class Client(object):
           break
         except ErrNoServers:
           self._process_disconnect()
+          break
 
       try:
         yield self._process_connect_init()
@@ -568,16 +583,27 @@ class Client(object):
     Does cleanup of the client state and tears down the connection.
     """
     self._status = Client.DISCONNECTED
-    if self._err is not None:
-      return
-
     if self._disconnected_cb is not None:
       self._disconnected_cb()
+    self._close()
+
+  @tornado.gen.coroutine
+  def close(self):
+    """
+    Wraps up connection to the NATS cluster and stops reconnecting.
+    """
+    self._status = Client.CLOSED
+    self._close()
+
+  def _close(self):
+    if self.is_closed():
+      return
 
     if self._ping_timer.is_running():
       self._ping_timer.stop()
 
-    self.io.close()
+    if not self.io.closed():
+      self.io.close()
 
   def _process_err(self, err=None):
     """

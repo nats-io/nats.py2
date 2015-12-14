@@ -15,7 +15,9 @@
 - [X] pending data buffering on reconnect
 - [X] client connection stats
 - [X] Improved tests
-- [ ] performance issues handling on larger messages
-- [ ] follow size of max payload
+- [X] follow size of max payload
+- [X] closed state
+- [ ] increase test coverage around reconnect/split buffer scenarios
+- [ ] confirm performance issues handling on larger messages
 - [ ] TLS
 - [ ] Travis builds

@@ -106,6 +106,7 @@ import tornado.ioloop
 import tornado.gen
 from datetime import timedelta
 from nats.io.client import Client as NATS
+from nats.io.errors import ErrConnectionClosed
 
 @tornado.gen.coroutine
 def main():
@@ -128,7 +129,7 @@ def main():
     def close_cb():
         print("Connection was closed!")
 
-    def disconnected_cb(e):
+    def disconnected_cb():
         print("Disconnected!")
 
     def reconnected_cb():
@@ -156,13 +157,19 @@ def main():
 
     yield nc.subscribe("ping", "", subscriber)
 
-    for i in range(0, 10000000):
+    for i in range(0, 100):
         yield nc.publish("ping", "ping:{0}".format(i))
         yield tornado.gen.sleep(0.1)
 
+    yield nc.close()
+
+    try:
+        yield nc.publish("ping", "ping")
+    except ErrConnectionClosed:
+        print("No longer connected to NATS cluster.")
+
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
-
 ```
 
 ## Advanced Usage
