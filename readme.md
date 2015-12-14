@@ -4,7 +4,7 @@ A Python async client for the [NATS messaging system](https://nats.io).
 
 ## Supported platforms
 
-Confirmed to be compatible with following versions of [Python](https://www.python.org/)
+Confirmed be compatible with following versions of [Python](https://www.python.org/)
 using [Tornado 4.2](https://github.com/tornadoweb/tornado/tree/v4.2.0)
 with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
 
@@ -100,7 +100,7 @@ if __name__ == '__main__':
 
 ## Clustered Usage
 
-```
+```python
 # coding: utf-8
 import tornado.ioloop
 import tornado.gen
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 
 ## Advanced Usage
 
-```
+```python
 # coding: utf-8
 import tornado.ioloop
 import tornado.gen
