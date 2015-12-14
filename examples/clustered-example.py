@@ -49,12 +49,12 @@ def main():
 
     @tornado.gen.coroutine
     def subscriber(msg):
-        yield nc.publish("discover", "pong:{0}".format(msg.data))
+        yield nc.publish("pong", "pong:{0}".format(msg.data))
 
-    yield nc.subscribe("discover", "", subscriber)
+    yield nc.subscribe("ping", "", subscriber)
 
     for i in range(0, 10000000):
-        yield nc.publish("discover", "ping:{0}".format(i))
+        yield nc.publish("ping", "ping:{0}".format(i))
         yield tornado.gen.sleep(0.1)
 
 if __name__ == '__main__':
