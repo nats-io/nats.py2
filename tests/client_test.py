@@ -104,6 +104,7 @@ class ClientUtilsTest(unittest.TestCase):
           nc.options["verbose"] = False
           nc.options["pedantic"] = False
           nc.options["auth_required"] = False
+          nc.options["name"] = None
           got = nc.connect_command()
           expected = 'CONNECT {"lang": "python2", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
           self.assertEqual(expected, got)
@@ -411,6 +412,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                     self.error_cb_called = False
                     self.close_cb_called = False
                     self.disconnected_cb_called = False
+                    self.reconnected_cb_called = False
 
                def error_cb(self, err):
                     self.error = err
@@ -421,6 +423,9 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
                def disconnected_cb(self):
                     self.disconnected_cb_called = True
+
+               def reconnected_cb(self):
+                    self.reconnected_cb_called = True
 
           nc = Client()
           component = Component(nc)
@@ -433,7 +438,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                "io_loop": self.io_loop,
                "close_cb": component.close_cb,
                "error_cb": component.error_cb,
-               "disconnected_cb": component.disconnected_cb
+               "disconnected_cb": component.disconnected_cb,
+               "reconnected_cb": component.reconnected_cb
                }
           yield component.nc.connect(**options)
           self.assertEqual(True, component.nc.is_connected())
@@ -470,14 +476,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           orig_gnatsd = self.server_pool.pop(0)
           orig_gnatsd.finish()
 
-          # Reconnect with another server fails due to authorization error.
-          try:
-               a = component.nc._current_server
-               yield tornado.gen.sleep(5)
-          finally:
-               b = nc._current_server
-               self.assertEqual(a.uri, b.uri)
-
+          # Wait for reconnect logic kick in and fail due to authorization error.
+          yield tornado.gen.sleep(5)
           self.assertFalse(component.nc.is_connected())
           self.assertTrue(component.nc.is_reconnecting())
 
@@ -488,6 +488,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           self.assertTrue(component.error_cb_called)
           self.assertTrue(component.close_cb_called)
           self.assertFalse(component.disconnected_cb_called)
+          self.assertTrue(component.reconnected_cb_called)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)

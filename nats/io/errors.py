@@ -4,6 +4,8 @@
 Exported errors which can be thrown by the NATS client.
 """
 
+import socket
+
 class ErrAuthorization(Exception):
     pass
 
@@ -44,5 +46,11 @@ class ErrNoServers(Exception):
     Raised when the number of reconnect attempts is exhausted
     when reconnecting to a server/set of servers, or if the
     allow reconnect option is was disabled.
+    """
+    pass
+
+class ErrServerConnect(socket.error):
+    """
+    Raised when it could not establish a connection with server.
     """
     pass

@@ -98,6 +98,28 @@ class ProtocolParserTest(unittest.TestCase):
         self.assertEqual(len(ps.scratch), 9)
         self.assertEqual(ps.state, AWAITING_MSG_ARG)
 
+    def test_parse_split_msg_op(self):
+        ps = Parser()
+        data = b'MSG'
+        ps.parse(data)
+        self.assertEqual(len(ps.scratch), 3)
+        self.assertEqual(ps.state, AWAITING_MSG_ARG)
+
+    def test_parse_split_msg_op_space(self):
+        ps = Parser()
+        data = b'MSG '
+        ps.parse(data)
+        self.assertEqual(len(ps.scratch), 4)
+        self.assertEqual(ps.state, AWAITING_MSG_ARG)
+
+    def test_parse_split_msg_op_wrong_args(self):
+        ps = Parser()
+        data = b'MSG PONG\r\n'
+        with self.assertRaises(ErrProtocol):
+             ps.parse(data)
+             # self.assertEqual(len(ps.scratch), 5)
+             self.assertEqual(ps.state, AWAITING_MSG_ARG)
+
     def test_parse_err_op(self):
         ps = Parser()
         data = b"-ERR 'Slow..."

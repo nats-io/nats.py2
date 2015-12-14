@@ -46,7 +46,10 @@ class Parser(object):
 
   def __init__(self, nc=None):
     self.nc = nc
-    self.scratch = ""
+    self.reset()
+
+  def reset(self):
+    self.scratch = b''
     self.state = AWAITING_CONTROL_LINE
     self.needed = 0
     self.msg_arg = {}
@@ -57,7 +60,8 @@ class Parser(object):
     of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
     to the parsing callback for processing.
     """
-    self.nc.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
+    if not self.nc.io.closed():
+      self.nc.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
 
   def parse(self, data=''):
     """
@@ -109,15 +113,17 @@ class Parser(object):
         if i > 0:
           line = self.scratch[:i]
           args = line.split(_SPC_)
-          self.msg_arg["subject"] = args[1]
-          self.msg_arg["sid"] = int(args[2])
 
           # Check in case of using a queue
           args_size = len(args)
           if args_size == 5:
+            self.msg_arg["subject"] = args[1]
+            self.msg_arg["sid"] = int(args[2])
             self.msg_arg["reply"] = args[3]
             self.needed = int(args[4])
           elif args_size == 4:
+            self.msg_arg["subject"] = args[1]
+            self.msg_arg["sid"] = int(args[2])
             self.msg_arg["reply"] = ""
             self.needed = int(args[3])
           else:
