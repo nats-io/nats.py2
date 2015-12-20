@@ -30,7 +30,8 @@ DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_PING_INTERVAL     = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS     = 2
 MAX_RECONNECT_ATTEMPTS    = 10
-RECONNECT_TIME_WAIT       = 2  # in seconds
+RECONNECT_TIME_WAIT       = 2 # in seconds
+DEFAULT_CONNECT_TIMEOUT   = 2 # in seconds
 
 class Client(object):
 
@@ -102,6 +103,7 @@ class Client(object):
               max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
               read_chunk_size=None,
               tcp_nodelay=False,
+              connect_timeout=DEFAULT_CONNECT_TIMEOUT,
               ):
     """
     Establishes a connection to a NATS server.
@@ -124,6 +126,7 @@ class Client(object):
     self.options["max_outstanding_pings"] = max_outstanding_pings
     self.options["dont_randomize"] = dont_randomize
     self.options["allow_reconnect"] = allow_reconnect
+    self.options["connect_timeout"] = connect_timeout
     self.options["tcp_nodelay"] = tcp_nodelay
 
     self._close_cb = close_cb
@@ -187,7 +190,9 @@ class Client(object):
                                         max_write_buffer_size=self._max_write_buffer_size,
                                         read_chunk_size=self._read_chunk_size,
                                         )
-    yield self.io.connect((s.uri.hostname, s.uri.port))
+
+    future = self.io.connect((s.uri.hostname, s.uri.port))
+    yield tornado.gen.with_timeout(timedelta(seconds=self.options["connect_timeout"]), future)
 
   @tornado.gen.coroutine
   def _send_ping(self, future=None):

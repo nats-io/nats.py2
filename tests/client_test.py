@@ -185,12 +185,19 @@ class ClientTest(tornado.testing.AsyncTestCase):
      @tornado.testing.gen_test
      def test_connect_use_tcp_nodelay(self):
           nc1 = Client()
-          yield nc1.connect(io_loop=self.io_loop, pedantic=True, tcp_nodelay=True)
+          yield nc1.connect(io_loop=self.io_loop, tcp_nodelay=True)
           self.assertEqual(4, nc1._socket.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
 
           nc2 = Client()
-          yield nc2.connect(io_loop=self.io_loop, pedantic=True, tcp_nodelay=False)
+          # Default is not enabled.
+          yield nc2.connect(io_loop=self.io_loop)
           self.assertEqual(0, nc2._socket.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+
+     @tornado.testing.gen_test
+     def test_connect_custom_connect_timeout(self):
+          nc = Client()
+          yield nc.connect(io_loop=self.io_loop, connect_timeout=1)
+          self.assertEqual(1, nc.options["connect_timeout"])
 
      @tornado.testing.gen_test
      def test_parse_info(self):
