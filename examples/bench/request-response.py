@@ -1,8 +1,10 @@
 import socket
 import time
 import sys
+import json
 import tornado.gen
 import tornado.ioloop
+import tornado.httpclient
 from nats.io.client import Client as Nats
 
 class Client(object):
@@ -15,36 +17,47 @@ class Client(object):
         self.max_messages = 0
         self.nc = nc
 
+    def error(self, error):
+        print("ERROR: {0}".format(error))
+
     def disconnected(self):
-        print("Disconnected after writing: ", self.total_written)
+        print("DISCONNECTED: wrote {0}".format(self.total_written))
 
 @tornado.gen.coroutine
 def go():
     nc = Client(Nats())
 
     try:
-        options = {"servers": ["nats://127.0.0.1:4225"]}
+        options = {
+            "servers": ["nats://127.0.0.1:4225"],
+            "disconnected_cb": nc.disconnected,
+            "error_cb": nc.error,
+            }
         yield nc.nc.connect(**options)
-    except Exception, e:
-        print("Error: could not establish connection to server", e)
+    except Exception as e:
+        print("ERROR: could not establish connection to server", e)
         tornado.ioloop.IOLoop.instance().stop()
         return
 
     try:
         max_messages = sys.argv[1]
     except:
-        max_messages = 100000
+        max_messages = 2000
 
     try:
         bytesize = sys.argv[2]
     except:
         bytesize = 1
 
-    @tornado.gen.coroutine
     def response_handler(msg):
-        yield nc.nc.publish(msg.reply, "A")
+        nc.nc.publish(msg.reply, "")
 
     yield nc.nc.subscribe("help", "workers", response_handler)
+
+    # Confirm original stats in the server
+    http = tornado.httpclient.AsyncHTTPClient()
+    response = yield http.fetch('http://127.0.0.1:8222/varz')
+    start_varz = json.loads(response.body)
 
     nc.start_time = time.time()
     nc.max_messages = int(max_messages)
@@ -54,17 +67,30 @@ def go():
         try:
             result = yield nc.nc.timed_request("help", line)            
             nc.total_written += 1
-        except tornado.gen.TimeoutError, e:
+        except tornado.gen.TimeoutError:
             nc.timeouts += 1
-            continue
-        finally:
-            nc.end_time = time.time()
 
+    yield nc.nc.flush()
+    nc.end_time = time.time()    
     duration = nc.end_time - nc.start_time
     rate = nc.total_written / duration
-    tornado.ioloop.IOLoop.instance().stop()
-    print("|{0}|{1}|{2}|{3}|{4}|{5}|".format(max_messages, bytesize, duration, rate, nc.total_written, nc.timeouts))
+
+    http = tornado.httpclient.AsyncHTTPClient()
+    response = yield http.fetch('http://127.0.0.1:8222/varz')
+    end_varz = json.loads(response.body)
+    delta_varz_in_msgs = end_varz["in_msgs"] - start_varz["in_msgs"]
+    delta_varz_in_bytes = end_varz["in_bytes"] - start_varz["in_bytes"]    
+
+    print("|{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|".format(
+        max_messages,
+        bytesize,
+        duration,
+        rate,
+        nc.total_written,
+        nc.timeouts,
+        delta_varz_in_msgs,
+        delta_varz_in_bytes,
+        ))
 
 if __name__ == '__main__':
-    go()
-    tornado.ioloop.IOLoop.instance().start()
+    tornado.ioloop.IOLoop.instance().run_sync(go)

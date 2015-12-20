@@ -24,14 +24,17 @@ _SPC_        = b' '
 _EMPTY_      = b''
 
 # Defaults
-DEFAULT_READ_BUFFER_SIZE  = 32768
-DEFAULT_WRITE_BUFFER_SIZE = 32768
-DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_PING_INTERVAL     = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS     = 2
 MAX_RECONNECT_ATTEMPTS    = 10
 RECONNECT_TIME_WAIT       = 2 # in seconds
 DEFAULT_CONNECT_TIMEOUT   = 2 # in seconds
+
+DEFAULT_READ_BUFFER_SIZE  = 1024 * 1024 * 100
+DEFAULT_WRITE_BUFFER_SIZE = None
+DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
+DEFAULT_PENDING_SIZE      = 1024 * 1024
+DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
 
 class Client(object):
 
@@ -46,7 +49,7 @@ class Client(object):
 
     # INFO that we get upon connect from the server.
     self._server_info = {}
-    self._max_payload_size = 1048576
+    self._max_payload_size = DEFAULT_MAX_PAYLOAD_SIZE
 
     # Client connection state and clustering.
     self.io = None
@@ -101,7 +104,7 @@ class Client(object):
               io_loop=tornado.ioloop.IOLoop.instance(),
               max_read_buffer_size=DEFAULT_READ_BUFFER_SIZE,
               max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
-              read_chunk_size=None,
+              read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
               tcp_nodelay=False,
               connect_timeout=DEFAULT_CONNECT_TIMEOUT,
               ):
