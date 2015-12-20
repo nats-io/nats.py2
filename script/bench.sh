@@ -74,9 +74,20 @@ echo
 
 echo "*** Request/Response (larger messages)"
 echo
-echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | varz in msgs| varz in bytes|"
-for nbytes in 10000 100000 1000000; do
-  for messages in 100 1000 10000 ; do
+echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | errors | varz in msgs| varz in bytes|"
+for nbytes in 10000 20000 30000; do
+  for messages in 100 200 300; do
+    python examples/bench/request-response.py $messages $nbytes;  2> /dev/null
+  done;
+done
+echo
+echo
+
+echo "*** Slow Consumer"
+echo
+echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | errors | varz in msgs| varz in bytes|"
+for nbytes in 100000; do
+  for messages in 100 500 1000; do
     python examples/bench/request-response.py $messages $nbytes;  2> /dev/null
   done;
 done
