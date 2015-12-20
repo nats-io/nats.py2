@@ -50,7 +50,7 @@ def go():
 
     # Confirm original stats in the server
     http = tornado.httpclient.AsyncHTTPClient()
-    response = yield http.fetch('http://127.0.0.1:8222/varz')
+    response = yield http.fetch('http://127.0.0.1:8225/varz')
     start_varz = json.loads(response.body)
 
     nc.start_time = time.time()
@@ -70,7 +70,7 @@ def go():
     rate = nc.total_written / duration
 
     http = tornado.httpclient.AsyncHTTPClient()
-    response = yield http.fetch('http://127.0.0.1:8222/varz')
+    response = yield http.fetch('http://127.0.0.1:8225/varz')
     end_varz = json.loads(response.body)
     delta_varz_in_msgs = end_varz["in_msgs"] - start_varz["in_msgs"]
     delta_varz_in_bytes = end_varz["in_bytes"] - start_varz["in_bytes"]    

@@ -2,7 +2,7 @@
 #
 # Simple script to generate table with benchmarks.
 #
-# Requires running NATS server with `gnatsd -m 8222 -p 4225`
+# Requires running NATS server with `gnatsd -m 8225 -p 4225`
 #
 #
 echo "*** PUB using NATS client."
@@ -63,7 +63,7 @@ echo
 
 echo "*** Request/Response."
 echo
-echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | varz in msgs| varz in bytes|"
+echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | errors | varz in msgs| varz in bytes|"
 for nbytes in 1 10 100 1000 5000 ; do 
   for messages in 100 1000 10000 ; do
     python examples/bench/request-response.py $messages $nbytes;  2> /dev/null
