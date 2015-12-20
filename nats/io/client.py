@@ -100,7 +100,8 @@ class Client(object):
               io_loop=tornado.ioloop.IOLoop.instance(),
               max_read_buffer_size=DEFAULT_READ_BUFFER_SIZE,
               max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
-              read_chunk_size=None
+              read_chunk_size=None,
+              tcp_nodelay=False,
               ):
     """
     Establishes a connection to a NATS server.
@@ -123,6 +124,7 @@ class Client(object):
     self.options["max_outstanding_pings"] = max_outstanding_pings
     self.options["dont_randomize"] = dont_randomize
     self.options["allow_reconnect"] = allow_reconnect
+    self.options["tcp_nodelay"] = tcp_nodelay
 
     self._close_cb = close_cb
     self._error_cb = error_cb
@@ -178,6 +180,8 @@ class Client(object):
     self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._socket.setblocking(0)
     self._socket.settimeout(1.0)
+    if self.options["tcp_nodelay"]:
+      self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     self.io = tornado.iostream.IOStream(self._socket,
                                         max_buffer_size=self._max_read_buffer_size,
                                         max_write_buffer_size=self._max_write_buffer_size,

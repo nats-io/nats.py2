@@ -183,6 +183,16 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(expected, got)
 
      @tornado.testing.gen_test
+     def test_connect_use_tcp_nodelay(self):
+          nc1 = Client()
+          yield nc1.connect(io_loop=self.io_loop, pedantic=True, tcp_nodelay=True)
+          self.assertEqual(4, nc1._socket.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+
+          nc2 = Client()
+          yield nc2.connect(io_loop=self.io_loop, pedantic=True, tcp_nodelay=False)
+          self.assertEqual(0, nc2._socket.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+
+     @tornado.testing.gen_test
      def test_parse_info(self):
           nc = Client()
           yield nc.connect(io_loop=self.io_loop)
