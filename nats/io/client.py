@@ -24,11 +24,9 @@ _SPC_        = b' '
 _EMPTY_      = b''
 
 # Defaults
-DEFAULT_TIMEOUT           = 2 * 1000 # in ms
 DEFAULT_READ_BUFFER_SIZE  = 32768
 DEFAULT_WRITE_BUFFER_SIZE = 32768
-DEFAULT_READ_CHUNK_SIZE   = 32768
-DEFAULT_MAX_PENDING_SIZE  = 32768
+DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_PING_INTERVAL     = 120 * 1000 # in ms
 MAX_OUTSTANDING_PINGS     = 2
 MAX_RECONNECT_ATTEMPTS    = 10
@@ -99,7 +97,10 @@ class Client(object):
               error_cb=None,
               disconnected_cb=None,
               reconnected_cb=None,
-              io_loop=tornado.ioloop.IOLoop.instance()
+              io_loop=tornado.ioloop.IOLoop.instance(),
+              max_read_buffer_size=DEFAULT_READ_BUFFER_SIZE,
+              max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
+              read_chunk_size=None
               ):
     """
     Establishes a connection to a NATS server.
@@ -128,6 +129,9 @@ class Client(object):
     self._disconnected_cb = disconnected_cb
     self._reconnected_cb = reconnected_cb
     self._loop = io_loop
+    self._max_read_buffer_size = max_read_buffer_size
+    self._max_write_buffer_size = max_write_buffer_size
+    self._read_chunk_size = read_chunk_size
 
     if len(self.options["servers"]) < 1:
       srv = Srv(urlparse("nats://127.0.0.1:4222"))
@@ -175,9 +179,9 @@ class Client(object):
     self._socket.setblocking(0)
     self._socket.settimeout(1.0)
     self.io = tornado.iostream.IOStream(self._socket,
-                                        max_buffer_size=DEFAULT_READ_BUFFER_SIZE,
-                                        read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
-                                        max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
+                                        max_buffer_size=self._max_read_buffer_size,
+                                        max_write_buffer_size=self._max_write_buffer_size,
+                                        read_chunk_size=self._read_chunk_size,
                                         )
     yield self.io.connect((s.uri.hostname, s.uri.port))
 
@@ -228,7 +232,7 @@ class Client(object):
 
     if self.is_connected() or self.is_connecting() or self.is_reconnecting():
       yield self._flush_pending()
-    elif len(self._pending) > DEFAULT_MAX_PENDING_SIZE:
+    elif len(self._pending) > DEFAULT_PENDING_SIZE:
       yield self._flush_pending()
       self._pending = b''
 

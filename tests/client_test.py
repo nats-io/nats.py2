@@ -10,6 +10,7 @@ import tornado.concurrent
 import tornado.testing
 import tornado.gen
 import tornado.ioloop
+import tornado.iostream
 import subprocess
 import threading
 import time
@@ -124,6 +125,7 @@ class ClientUtilsTest(unittest.TestCase):
           self.assertTrue(inbox.startswith(INBOX_PREFIX))
           min_expected_len = len(INBOX_PREFIX)
           self.assertTrue(len(inbox) > min_expected_len)
+
 
 class ClientTest(tornado.testing.AsyncTestCase):
 
@@ -305,6 +307,41 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(10, nc.stats['out_bytes'])
           self.assertEqual(0,  nc.stats['in_msgs'])
           self.assertEqual(2,  nc.stats['out_msgs'])
+
+     @tornado.testing.gen_test
+     def test_customize_io_buffers(self):
+          class Component():
+               def __init__(self):
+                    self.nc = Client()
+                    self.errors = []
+                    self.disconnected_cb_called = 0
+                    self.closed_cb_called = 0                    
+
+               def error_cb(self, e):
+                    self.errors.append(e)
+
+               def close_cb(self):
+                    self.closed_cb_called += 1
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called += 1
+
+          c = Component()
+          options = {
+               "io_loop": self.io_loop,
+               "max_read_buffer_size": 1024,
+               "max_write_buffer_size": 50,
+               "read_chunk_size": 10,
+               "error_cb": c.error_cb,
+               "close_cb": c.close_cb,
+               "disconnected_cb": c.disconnected_cb
+               }
+          with self.assertRaises(tornado.iostream.StreamBufferFullError):
+               yield c.nc.connect(**options)
+          self.assertFalse(c.nc.is_connected())
+          self.assertEqual(1024, c.nc._max_read_buffer_size)
+          self.assertEqual(50, c.nc._max_write_buffer_size)
+          self.assertEqual(10, c.nc._read_chunk_size)
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
 
