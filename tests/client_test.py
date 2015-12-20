@@ -253,6 +253,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           inbox = new_inbox()
           yield nc.subscribe("help.1")
           yield nc.subscribe("help.2")
+          yield tornado.gen.sleep(1.0)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:%d/connz' % self.server_pool[0].http_port)
@@ -272,6 +273,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           yield nc.subscribe(">", "", log.persist)
           yield nc.publish("one", "hello")
           yield nc.publish("two", "world")
+          yield tornado.gen.sleep(1.0)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:%d/varz' % self.server_pool[0].http_port)
@@ -311,6 +313,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           inbox = new_inbox()
           yield nc.publish_request("help.1", inbox, "hello")
           yield nc.publish_request("help.2", inbox, "world")
+          yield tornado.gen.sleep(1.0)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:%d/varz' % self.server_pool[0].http_port)
@@ -520,6 +523,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           yield nc.publish("foo", "hello")
           yield tornado.gen.sleep(1)
           self.assertEqual("hello", log.records['foo'][0].data)
+          yield tornado.gen.sleep(1.0)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:8223/connz')
