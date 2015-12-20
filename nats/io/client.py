@@ -301,7 +301,7 @@ class Client(object):
     self._publish(subject, reply, payload, payload_size)
 
   @tornado.gen.coroutine
-  def flush(self,timeout=5000):
+  def flush(self,timeout=60000):
     """
     Flush will perform a round trip to the server and return True
     when it receives the internal reply or raise a Timeout error.
