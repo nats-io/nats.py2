@@ -32,8 +32,10 @@ def main():
       servers = args.servers
       if len(args.servers) < 1:
         servers = ["nats://127.0.0.1:4222"]
-      yield nc.connect({ "servers": servers })
-      nc.publish(args.subject, args.data)
+
+      opts = { "servers": servers }
+      yield nc.connect(**opts)
+      yield nc.publish(args.subject, args.data)
       yield nc.flush()
       print("Published to '{0}'".format(args.subject))
     except Exception, e:
