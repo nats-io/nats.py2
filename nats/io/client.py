@@ -345,9 +345,6 @@ class Client(object):
        <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
-    if self.is_closed():
-      raise ErrConnectionClosed
-
     inbox = new_inbox()
     sid = yield self.subscribe(inbox, _EMPTY_, cb)
     yield self.auto_unsubscribe(sid, expected)
@@ -369,9 +366,6 @@ class Client(object):
        <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
-    if self.is_closed():
-      raise ErrConnectionClosed
-
     inbox = new_inbox()
     future = tornado.concurrent.Future()
     sid = yield self.subscribe(inbox, _EMPTY_, None, future)
@@ -387,6 +381,9 @@ class Client(object):
     in case of distributed queues or left empty if it is not the case, and a callback
     that will be dispatched message for processing them.
     """
+    if self.is_closed():
+      raise ErrConnectionClosed
+
     self._ssid += 1
     sid = self._ssid
     sub = Subscription(subject=subject, queue=queue, cb=cb, future=future)
@@ -515,7 +512,7 @@ class Client(object):
     Unbind handles the disconnection from the server then
     attempts to reconnect if `allow_reconnect' is enabled.
     """
-    if self.is_reconnecting() or self.is_closed():
+    if self.is_connecting() or self.is_closed() or self.is_reconnecting():
       return
 
     if self._close_cb is not None:
@@ -546,7 +543,8 @@ class Client(object):
         self._err = e
         if self._error_cb is not None:
           self._error_cb(e)
-          # yield self._unbind()
+          yield self._unbind()
+          return
 
       # Replay all the subscriptions in case there were some.
       for ssid, sub in self._subs.items():
@@ -588,7 +586,7 @@ class Client(object):
         s.reconnects = 0
         self.io.set_close_callback(self._unbind)
 
-        if self._status is Client.RECONNECTING and self._reconnected_cb is not None:
+        if self.is_reconnecting() and self._reconnected_cb is not None:
           self._reconnected_cb()
 
         return
