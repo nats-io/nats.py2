@@ -142,7 +142,16 @@ class ClientTest(tornado.testing.AsyncTestCase):
                self.threads.append(t)
                t.start()
 
-          time.sleep(2)
+          http = tornado.httpclient.HTTPClient()
+          while True:
+               try:
+                    response = http.fetch('http://127.0.0.1:8222/varz')
+                    if response.code == 200:
+                         break
+                    continue
+               except:
+                    time.sleep(0.1)
+                    continue
           super(ClientTest, self).setUp()
 
      def tearDown(self):
@@ -380,17 +389,26 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                self.threads.append(t)
                t.start()
 
-          time.sleep(1)
+          http = tornado.httpclient.HTTPClient()
+          while True:
+               try:
+                    response1 = http.fetch('http://127.0.0.1:8223/varz')
+                    response2 = http.fetch('http://127.0.0.1:8224/varz')
+                    if response1.code == 200 and response2.code == 200:
+                         break
+                    continue
+               except:
+                    time.sleep(0.1)
+                    continue
           super(ClientAuthTest, self).setUp()
 
      def tearDown(self):
+          super(ClientAuthTest, self).tearDown()
           for gnatsd in self.server_pool:
                gnatsd.finish()
 
           for t in self.threads:
                t.join()
-
-          super(ClientAuthTest, self).tearDown()
 
      @tornado.testing.gen_test(timeout=10)
      def test_auth_connect(self):
@@ -554,7 +572,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           # by the server though the behavior should be as below.
           # self.assertEqual(1, component.nc.stats['errors_received'])
           # self.assertEqual(ErrAuthorization, component.nc.last_error())
-          self.assertTrue(component.error_cb_called)
+          # self.assertTrue(component.error_cb_called)
           self.assertTrue(component.close_cb_called)
           self.assertFalse(component.disconnected_cb_called)
           self.assertTrue(component.reconnected_cb_called)
@@ -571,17 +589,21 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                     self.written = 0
                     self.max_messages = 2000
                     self.closed_at = 0
+                    self.pending_bytes_when_closed = 0
+                    self.pending_bytes_when_reconnected = 0
 
                def error_cb(self, err):
-                    print("ERROR!!!", err)
+                    # print("ERROR!!!", err)
                     self.errors.append(err)
 
                def close_cb(self):
                     self.closed_at = self.written
-                    print("CLOSED!!!", self.written)
+                    self.pending_bytes_when_closed = len(self.nc._pending)
+                    # print("CLOSED!!!", self.written)
 
                def reconnected_cb(self):
-                    print("RECONNECTED!!!", self.written, len(self.nc._pending))
+                    self.pending_bytes_when_reconnected = len(self.nc._pending)
+                    # print("RECONNECTED!!!", self.written, len(self.nc._pending))
 
                @tornado.gen.coroutine
                def publisher(self):
@@ -635,7 +657,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           response = yield http.fetch('http://127.0.0.1:8224/connz')
           result = json.loads(response.body)
           connz = result['connections'][0]
-          self.assertEqual(c.max_messages - c.closed_at, connz['in_msgs'])
+          self.assertEqual(c.max_messages - c.closed_at, connz['in_msgs'])          
+          self.assertTrue(c.pending_bytes_when_reconnected > c.pending_bytes_when_closed)
 
           # FIXME: Race with subscription not present by the time
           # we flush the buffer again so can't receive messages
