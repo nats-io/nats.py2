@@ -262,7 +262,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           inbox = new_inbox()
           yield nc.subscribe("help.1")
           yield nc.subscribe("help.2")
-          yield tornado.gen.sleep(1.0)
+          yield tornado.gen.sleep(0.5)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:%d/connz' % self.server_pool[0].http_port)
@@ -298,6 +298,97 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(10, nc.stats['out_bytes'])
           self.assertEqual(2, nc.stats['in_msgs'])
           self.assertEqual(2, nc.stats['out_msgs'])
+
+     @tornado.testing.gen_test
+     def test_request(self):
+          nc = Client()
+          yield nc.connect(io_loop=self.io_loop)
+
+          class Component:
+               def __init__(self, nc):
+                    self.nc = nc
+                    self.replies = []
+
+               def receive_responses(self, msg=None):
+                    self.replies.append(msg)
+
+               @tornado.gen.coroutine
+               def respond(self, msg=None):
+                    yield self.nc.publish(msg.reply, "ok:1")
+                    yield self.nc.publish(msg.reply, "ok:2")
+                    yield self.nc.publish(msg.reply, "ok:3")
+
+          log = Log()
+          c = Component(nc)
+          yield nc.subscribe(">", "", log.persist)
+          yield nc.subscribe("help", "", c.respond)
+          yield nc.request("help", "please", expected=2, cb=c.receive_responses)
+          yield tornado.gen.sleep(0.5)
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/varz' % self.server_pool[0].http_port)
+          varz = json.loads(response.body)
+          self.assertEqual(18, varz['in_bytes'])
+          self.assertEqual(32, varz['out_bytes'])
+          self.assertEqual(4, varz['in_msgs'])
+          self.assertEqual(7, varz['out_msgs'])
+          self.assertEqual(2, len(log.records.keys()))
+          self.assertEqual("please", log.records['help'][0].data)
+          self.assertEqual(2, len(c.replies))
+          self.assertEqual(32, nc.stats['in_bytes'])
+          self.assertEqual(18, nc.stats['out_bytes'])
+          self.assertEqual(7, nc.stats['in_msgs'])
+          self.assertEqual(4, nc.stats['out_msgs'])
+
+          full_msg = ''
+          for msg in log.records['help']:
+               full_msg += msg.data
+
+          self.assertEqual('please', full_msg)
+          self.assertEqual("ok:1", c.replies[0].data)
+          self.assertEqual("ok:2", c.replies[1].data)
+
+     @tornado.testing.gen_test
+     def test_timed_request(self):
+          nc = Client()
+          yield nc.connect(io_loop=self.io_loop)
+
+          class Component:
+               def __init__(self, nc):
+                    self.nc = nc
+
+               @tornado.gen.coroutine
+               def respond(self, msg=None):
+                    yield self.nc.publish(msg.reply, "ok:1")
+                    yield self.nc.publish(msg.reply, "ok:2")
+                    yield self.nc.publish(msg.reply, "ok:3")
+
+          log = Log()
+          c = Component(nc)
+          yield nc.subscribe(">", "", log.persist)
+          yield nc.subscribe("help", "", c.respond)
+
+          reply = yield nc.timed_request("help", "please")
+          self.assertEqual("ok:1", reply.data)
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/varz' % self.server_pool[0].http_port)
+          varz = json.loads(response.body)
+          self.assertEqual(18, varz['in_bytes'])
+          self.assertEqual(28, varz['out_bytes'])
+          self.assertEqual(4, varz['in_msgs'])
+          self.assertEqual(6, varz['out_msgs'])
+          self.assertEqual(2, len(log.records.keys()))
+          self.assertEqual("please", log.records['help'][0].data)
+          self.assertEqual(28, nc.stats['in_bytes'])
+          self.assertEqual(18, nc.stats['out_bytes'])
+          self.assertEqual(6, nc.stats['in_msgs'])
+          self.assertEqual(4, nc.stats['out_msgs'])
+
+          full_msg = ''
+          for msg in log.records['help']:
+               full_msg += msg.data
+          self.assertEqual('please', full_msg)
 
      @tornado.testing.gen_test
      def test_publish_max_payload(self):
@@ -344,7 +435,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = Client()
                     self.errors = []
                     self.disconnected_cb_called = 0
-                    self.closed_cb_called = 0                    
+                    self.closed_cb_called = 0
 
                def error_cb(self, e):
                     self.errors.append(e)
@@ -371,6 +462,89 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(1024, c.nc._max_read_buffer_size)
           self.assertEqual(50, c.nc._max_write_buffer_size)
           self.assertEqual(10, c.nc._read_chunk_size)
+
+     @tornado.testing.gen_test
+     def test_default_ping_interval(self):
+
+          class Parser():
+
+               def __init__(self, nc, t):
+                    self.nc = nc
+                    self.t = t
+
+               def read(self, data=''):
+                    self.t.assertEqual(1, len(self.nc._pongs))
+                    self.nc._process_pong()
+                    self.t.assertEqual(0, len(self.nc._pongs))
+
+          nc = Client()
+          nc._ps = Parser(nc, self)
+          yield nc.connect(io_loop=self.io_loop)
+          yield tornado.gen.sleep(1)
+          self.assertEqual(0, nc._pings_outstanding)
+          self.assertTrue(nc.is_connected())
+
+     @tornado.testing.gen_test
+     def test_custom_ping_interval(self):
+
+          class Parser():
+               def __init__(self, nc, t):
+                    self.nc = nc
+                    self.t = t
+
+               def read(self, data=''):
+                    self.t.assertEqual(1, len(self.nc._pongs))
+                    self.nc._process_pong()
+                    self.t.assertEqual(0, len(self.nc._pongs))
+
+          nc = Client()
+          nc._ps = Parser(nc, self)
+          yield nc.connect(io_loop=self.io_loop, ping_interval=0.01)
+          yield tornado.gen.sleep(1)
+          self.assertEqual(3, nc._pings_outstanding)
+          self.assertFalse(nc.is_connected())
+          self.assertTrue(nc.is_reconnecting())
+
+     @tornado.testing.gen_test
+     def test_flush_timeout(self):
+
+          class Parser():
+               def __init__(self, nc, t):
+                    self.nc = nc
+                    self.t = t
+
+               def read(self, data=''):
+                    self.t.assertEqual(1, self.nc._pings_outstanding)
+                    self.t.assertEqual(1, len(self.nc._pongs))
+                    self.nc._process_pong()
+                    self.t.assertEqual(0, len(self.nc._pongs))
+
+          nc = Client()
+          nc._ps = Parser(nc, self)
+          yield nc.connect(io_loop=self.io_loop)
+          with self.assertRaises(tornado.gen.TimeoutError):
+               yield nc.flush(1)
+          self.assertEqual(1, len(nc._pongs))
+          nc.flush(1)
+          self.assertEqual(2, nc._pings_outstanding)
+          self.assertEqual(2, len(nc._pongs))
+
+     @tornado.testing.gen_test
+     def test_timed_request_timeout(self):
+
+          class Parser():
+               def __init__(self, nc, t):
+                    self.nc = nc
+                    self.t = t
+
+               def read(self, data=''):
+                    self.nc._process_pong()
+
+          nc = Client()
+          nc._ps = Parser(nc, self)
+          yield nc.connect(io_loop=self.io_loop)
+          with self.assertRaises(tornado.gen.TimeoutError):
+               yield nc.timed_request("hello", "world", 500)
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
 
@@ -657,21 +831,21 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           response = yield http.fetch('http://127.0.0.1:8224/connz')
           result = json.loads(response.body)
           connz = result['connections'][0]
-          self.assertEqual(c.max_messages - c.closed_at, connz['in_msgs'])          
+          self.assertEqual(c.max_messages - c.closed_at, connz['in_msgs'])
           self.assertTrue(c.pending_bytes_when_reconnected > c.pending_bytes_when_closed)
 
           # FIXME: Race with subscription not present by the time
           # we flush the buffer again so can't receive messages
           # if sending to our own subscription.
-          # 
+          #
           # full_msg = ''
           # for msg in log.records['foo']:
           #      full_msg += msg.data
-          # 
+          #
           # expected_full_msg = ''
           # for i in range(0, c.max_messages):
           #      expected_full_msg += "%d," % i
-          # 
+          #
           # a = set(full_msg.split(','))
           # b = set(expected_full_msg.split(','))
           # print(sorted(list(b - a)))

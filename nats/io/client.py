@@ -311,7 +311,7 @@ class Client(object):
     self._publish(subject, reply, payload, payload_size)
 
   @tornado.gen.coroutine
-  def flush(self,timeout=60000):
+  def flush(self, timeout=60000):
     """
     Flush will perform a round trip to the server and return True
     when it receives the internal reply or raise a Timeout error.
@@ -321,10 +321,10 @@ class Client(object):
     yield self._flush_timeout(timeout)
 
   @tornado.gen.coroutine
-  def _flush_timeout(self,timeout):
+  def _flush_timeout(self, timeout):
     """
-    Takes a timeout and sets up a future which will be return
-    once the server responds back.
+    Takes a timeout and sets up a future which will return True
+    once the server responds back otherwise raise a TimeoutError.
     """
     future = tornado.concurrent.Future()
     yield self._send_ping(future)
