@@ -36,6 +36,13 @@ DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
 DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
 
+CONNECT_PROTO = b'{0} {1}{2}'
+PING_PROTO    = b'{0}{1}'.format(PING_OP, _CRLF_)
+PONG_PROTO    = b'{0}{1}'.format(PONG_OP, _CRLF_)
+PUB_PROTO     = b'{0} {1} {2} {3} {4}{5}{6}'
+SUB_PROTO     = b'{0} {1} {2} {3}{4}'
+UNSUB_PROTO   = b'{0} {1} {2}{3}'
+
 class Client(object):
 
   DISCONNECTED = 0
@@ -202,7 +209,7 @@ class Client(object):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
       yield self._unbind()
     else:
-      yield self.send_command("{0}{1}".format(PING_OP, _CRLF_), priority=True)
+      yield self.send_command(PING_PROTO, priority=True)
       if future is None:
         future = tornado.concurrent.Future()
       self._pings_outstanding += 1
@@ -230,7 +237,7 @@ class Client(object):
       options["name"] = self.options["name"]
 
     args = json.dumps(options, sort_keys=True)
-    return b'{0} {1}{2}'.format(CONNECT_OP, args, _CRLF_)
+    return CONNECT_PROTO.format(CONNECT_OP, args, _CRLF_)
 
   @tornado.gen.coroutine
   def send_command(self, cmd, priority=False):
@@ -249,7 +256,7 @@ class Client(object):
       self._pending = b''
 
   def _publish(self, subject, reply, payload, payload_size):
-    pub_cmd = b'{0} {1} {2} {3} {4}{5}{6}'.format(PUB_OP, subject, reply, payload_size, _CRLF_, payload, _CRLF_)
+    pub_cmd = PUB_PROTO.format(PUB_OP, subject, reply, payload_size, _CRLF_, payload, _CRLF_)
     self.stats['out_msgs']  += 1
     self.stats['out_bytes'] += payload_size
     self.send_command(pub_cmd)
@@ -392,7 +399,7 @@ class Client(object):
     """
     Generates a SUB command given a Subscription and the subject sequence id.
     """
-    sub_cmd = b'{0} {1} {2} {3}{4}'.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
+    sub_cmd = SUB_PROTO.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
     self.send_command(sub_cmd)
 
   @tornado.gen.coroutine
@@ -402,7 +409,7 @@ class Client(object):
     blocks in order to be able to define request/response semantics via pub/sub
     by announcing the server limited interest a priori.
     """
-    unsub_cmd = b'{0} {1} {2}{3}'.format(UNSUB_OP, sid, limit, _CRLF_)
+    unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, limit, _CRLF_)
     self.send_command(unsub_cmd)
 
   def _process_ping(self):
@@ -411,7 +418,7 @@ class Client(object):
     does not reply a PONG back a number of times, it will close the connection
     sending an `-ERR 'Stale Connection'` error.
     """
-    self.send_command(PONG)
+    self.send_command(PONG_PROTO)
 
   @tornado.gen.coroutine
   def _process_pong(self):
