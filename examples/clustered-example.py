@@ -36,14 +36,13 @@ def main():
     # protocol error message from the server.
     options["error_cb"] = error_cb
 
-    # close_cb is called whenever tcp connection
-    # to the server is closed.
+    # Called when we are not connected anymore to the NATS cluster.    
     options["close_cb"] = close_cb
 
-    # Called when we are not connected anymore to the NATS cluster.
+    # Called whenever we become disconnected from a NATS server.
     options["disconnected_cb"] = disconnected_cb
 
-    # Called when we connect to a node in the NATS cluster.
+    # Called when we connect to a node in the NATS cluster again.
     options["reconnected_cb"] = reconnected_cb
 
     yield nc.connect(**options)
