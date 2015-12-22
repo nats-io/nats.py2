@@ -2,7 +2,7 @@ from setuptools import setup
 from nats.io.client import __version__
 
 setup(
-  name='nats',
+  name='nats-client',
   version=__version__,
   description='NATS client for Python 2',
   long_description='Python 2 client for NATS, a lightweight, high-performance cloud native messaging system',
@@ -10,7 +10,7 @@ setup(
   author='Waldemar Quevedo',
   author_email='wally@apcera.com',
   license='MIT License',
-  packages=['nats'],
+  packages=['nats', 'nats.io', 'nats.protocol'],
   install_requires=[
     'tornado',
   ],
