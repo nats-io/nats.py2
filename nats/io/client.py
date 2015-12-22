@@ -17,7 +17,7 @@ from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser import *
 
-__version__  = b'0.1.0'
+__version__  = b'0.2.0'
 __lang__     = b'python2'
 _CRLF_       = b'\r\n'
 _SPC_        = b' '
