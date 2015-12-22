@@ -192,17 +192,6 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(expected, got)
 
      @tornado.testing.gen_test
-     def test_connect_use_tcp_nodelay(self):
-          nc1 = Client()
-          yield nc1.connect(io_loop=self.io_loop, tcp_nodelay=True)
-          self.assertEqual(4, nc1._socket.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
-
-          nc2 = Client()
-          # Default is not enabled.
-          yield nc2.connect(io_loop=self.io_loop)
-          self.assertEqual(0, nc2._socket.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
-
-     @tornado.testing.gen_test
      def test_connect_custom_connect_timeout(self):
           nc = Client()
           yield nc.connect(io_loop=self.io_loop, connect_timeout=1)
@@ -246,7 +235,6 @@ class ClientTest(tornado.testing.AsyncTestCase):
                yield client.nc.connect(**options)
 
           self.assertEqual(socket.error, type(client.nc.last_error()))
-          self.assertEqual('[Errno 61] Connection refused', client.err)
 
      @tornado.testing.gen_test
      def test_subscribe(self):

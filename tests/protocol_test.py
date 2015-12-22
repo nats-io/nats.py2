@@ -134,13 +134,6 @@ class ProtocolParserTest(unittest.TestCase):
         self.assertEqual(len(ps.scratch), 0)
         self.assertEqual(ps.state, AWAITING_CONTROL_LINE)
 
-    @unittest.skip("INFO parsing only done on connect by the Client before CONNECT")
-    def test_parse_info(self):
-        ps = Parser()
-        data = b'INFO {"server_id":"eec6c3","version":"0.6.6","go":"go1.4.2","host":"0.0.0.0","port":4222,"auth_required":false,"ssl_required":false,"max_payload":1048576}\r\n'
-        ps.parse(data)
-        self.assertEqual(ps.state, None)
-
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
     unittest.main(verbosity=2, exit=False, testRunner=runner)
