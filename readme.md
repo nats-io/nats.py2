@@ -2,6 +2,10 @@
 
 A Python async client for the [NATS messaging system](https://nats.io).
 
+[![License MIT](https://img.shields.io/npm/l/express.svg)](http://opensource.org/licenses/MIT)
+[![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
+[![GitHub release](http://img.shields.io/github/release/nats-io/python-nats.svg?style=flat-square)](https://github.com/nats-io/python-nats/releases)
+
 ## Supported platforms
 
 Should be compatible with following versions of [Python](https://www.python.org/)
@@ -168,6 +172,37 @@ def main():
         yield nc.publish("ping", "ping")
     except ErrConnectionClosed:
         print("No longer connected to NATS cluster.")
+
+if __name__ == '__main__':
+    tornado.ioloop.IOLoop.instance().run_sync(main)
+```
+
+## Wildcard Subscriptions
+
+```python
+# coding: utf-8
+import tornado.ioloop
+import tornado.gen
+import time
+from nats.io.client import Client as NATS
+
+@tornado.gen.coroutine
+def main():
+    nc = NATS()
+
+    yield nc.connect()
+
+    def subscriber(msg):
+        print("Msg received on [{0}]: {1}".format(msg.subject, msg.data))
+
+    yield nc.subscribe("foo.*.baz", "", subscriber)
+    yield nc.subscribe("foo.bar.*", "", subscriber)
+    yield nc.subscribe("foo.>", "", subscriber)
+    yield nc.subscribe(">", "", subscriber)
+
+    # Matches all of above
+    yield nc.publish("foo.bar.baz", b"Hello World")
+    yield tornado.gen.sleep(1)
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
