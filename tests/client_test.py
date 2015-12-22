@@ -846,6 +846,66 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           # print(sorted(list(b - a)))
           # self.assertEqual(len(expected_full_msg), len(full_msg))
 
+     @tornado.testing.gen_test(timeout=10)
+     def test_close_connection(self):
+          nc = Client()
+          options = {
+               "dont_randomize": True,
+               "servers": [
+                    "nats://foo:bar@127.0.0.1:4223",
+                    "nats://hoge:fuga@127.0.0.1:4224"
+                    ],
+               "io_loop": self.io_loop
+               }
+          yield nc.connect(**options)
+          self.assertEqual(True, nc._server_info["auth_required"])
+
+          log = Log()
+          sid_1 = yield nc.subscribe("foo",  "", log.persist)
+          self.assertEqual(sid_1, 1)
+          sid_2 = yield nc.subscribe("bar",  "", log.persist)
+          self.assertEqual(sid_2, 2)
+          sid_3 = yield nc.subscribe("quux", "", log.persist)
+          self.assertEqual(sid_3, 3)
+          yield nc.publish("foo", "hello")
+          yield tornado.gen.sleep(1.0)
+
+          # Done
+          yield nc.close()
+
+          orig_gnatsd = self.server_pool.pop(0)
+          orig_gnatsd.finish()
+
+          try:
+               a = nc._current_server
+               # Wait and assert that we don't reconnect.
+               yield tornado.gen.sleep(3)
+          finally:
+               b = nc._current_server
+               self.assertEqual(a.uri, b.uri)
+
+          self.assertFalse(nc.is_connected())
+          self.assertFalse(nc.is_reconnecting())
+          self.assertTrue(nc.is_closed())
+
+          with(self.assertRaises(ErrConnectionClosed)):
+               yield nc.publish("hello", "world")
+
+          with(self.assertRaises(ErrConnectionClosed)):
+               yield nc.flush()
+
+          with(self.assertRaises(ErrConnectionClosed)):
+               yield nc.subscribe("hello", "worker")
+
+          with(self.assertRaises(ErrConnectionClosed)):
+               yield nc.publish_request("hello", "inbox", "world")
+
+          with(self.assertRaises(ErrConnectionClosed)):
+               yield nc.request("hello", "world")
+
+          with(self.assertRaises(ErrConnectionClosed)):
+               yield nc.timed_request("hello", "world")
+
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
     unittest.main(verbosity=2, exit=False, testRunner=runner)
