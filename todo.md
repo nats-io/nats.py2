@@ -19,5 +19,5 @@
 - [X] closed state
 - [ ] confirm performance issues handling on larger messages
 - [ ] TLS
-- [ ] Travis builds
+- [X] Travis builds
 - [ ] Release on PyPI
