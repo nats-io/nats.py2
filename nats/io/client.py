@@ -451,8 +451,8 @@ class Client(object):
   def _process_connect_init(self):
     """
     Handles the initial part of the NATS protocol, moving from
-    the CONNECTING to CONNECTED states when establishing a connection
-    with the server.
+    the (RE)CONNECTING to CONNECTED states when establishing
+    a connection with the server.
     """
     # INFO {...}
     line = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
@@ -515,8 +515,8 @@ class Client(object):
     if self.is_connecting() or self.is_closed() or self.is_reconnecting():
       return
 
-    if self._close_cb is not None:
-      self._close_cb()
+    if self._disconnected_cb is not None:
+      self._disconnected_cb()
 
     if not self.options["allow_reconnect"]:
       self._process_disconnect()
@@ -529,22 +529,17 @@ class Client(object):
 
       while True:
         try:
-          self.io.close()
           yield self._schedule_primary_and_connect()
-          break
         except ErrNoServers:
           self._process_disconnect()
           break
 
-      try:
-        yield self._process_connect_init()
-      except Exception as e:
-        # FIXME: Might need more granular error handling here...
-        self._err = e
-        if self._error_cb is not None:
-          self._error_cb(e)
-          yield self._unbind()
-          return
+        try:
+          yield self._process_connect_init()
+          break
+        except Exception as e:
+          self._err = e
+          self._close(Client.DISCONNECTED, False)
 
       # Replay all the subscriptions in case there were some.
       for ssid, sub in self._subs.items():
@@ -604,27 +599,39 @@ class Client(object):
     Does cleanup of the client state and tears down the connection.
     """
     self._status = Client.DISCONNECTED
-    if self._disconnected_cb is not None:
-      self._disconnected_cb()
-    self._close()
+    yield self.close()
 
   @tornado.gen.coroutine
   def close(self):
     """
     Wraps up connection to the NATS cluster and stops reconnecting.
     """
-    self._status = Client.CLOSED
-    self._close()
+    yield self._close(Client.CLOSED)
 
-  def _close(self):
+  @tornado.gen.coroutine
+  def _close(self, status, do_callbacks=True):
+    """
+    Takes the status on which it should leave the connection
+    and an optional boolean parameter to dispatch the disconnected
+    and close callbacks if there are any.
+    """
     if self.is_closed():
+      # If connection already closed, then just set status explicitly.
+      self._status = status
       return
 
+    self._status = Client.CLOSED
     if self._ping_timer.is_running():
       self._ping_timer.stop()
 
     if not self.io.closed():
       self.io.close()
+
+    if do_callbacks:
+      if self._disconnected_cb is not None:
+        self._disconnected_cb()
+      if self._close_cb is not None:
+        self._close_cb()
 
   def _process_err(self, err=None):
     """

@@ -14,10 +14,10 @@
 - [X] error, close, disconnected callbacks,
 - [X] pending data buffering on reconnect
 - [X] client connection stats
-- [X] Improved tests
+- [X] integration tests with server
 - [X] follow size of max payload
 - [X] closed state
-- [ ] increase test coverage around reconnect/split buffer scenarios
 - [ ] confirm performance issues handling on larger messages
 - [ ] TLS
 - [ ] Travis builds
+- [ ] Release on PyPI
