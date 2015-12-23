@@ -17,7 +17,7 @@
 - [X] integration tests with server
 - [X] follow size of max payload
 - [X] closed state
+- [X] Travis builds
+- [X] Release on PyPI
 - [ ] confirm performance issues handling on larger messages
 - [ ] TLS
-- [X] Travis builds
-- [ ] Release on PyPI
