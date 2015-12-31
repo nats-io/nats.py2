@@ -63,7 +63,8 @@ class Client(object):
     self._status = Client.DISCONNECTED
     self._server_pool = []
     self._current_server = None
-    self._pending = b''
+    self._pending = []
+    self._pending_size = 0
     self._loop = None
     self.stats = {
       'in_msgs':    0,
@@ -199,7 +200,6 @@ class Client(object):
                                         max_write_buffer_size=self._max_write_buffer_size,
                                         read_chunk_size=self._read_chunk_size,
                                         )
-
     future = self.io.connect((s.uri.hostname, s.uri.port))
     yield tornado.gen.with_timeout(timedelta(seconds=self.options["connect_timeout"]), future)
 
@@ -244,15 +244,15 @@ class Client(object):
     Flushes a command to the server as a bytes payload.
     """
     if priority:
-      self._pending = cmd + self._pending
+      self._pending.insert(0, cmd)
     else:
-      self._pending += cmd
+      self._pending.append(cmd)
+    self._pending_size += len(cmd)
 
     if self.is_connected() or self.is_connecting() or self.is_reconnecting():
       yield self._flush_pending()
-    elif len(self._pending) > DEFAULT_PENDING_SIZE:
+    elif self._pending_size > DEFAULT_PENDING_SIZE:
       yield self._flush_pending()
-      self._pending = b''
 
   def _publish(self, subject, reply, payload, payload_size):
     pub_cmd = PUB_PROTO.format(PUB_OP, subject, reply, payload_size, _CRLF_, payload, _CRLF_)
@@ -263,8 +263,9 @@ class Client(object):
   @tornado.gen.coroutine
   def _flush_pending(self):
     try:
-      yield self.io.write(self._pending)
-      self._pending = b''
+      yield self.io.write(b''.join(self._pending))
+      self._pending = []
+      self._pending_size = 0
     except tornado.iostream.StreamBufferFullError:
       # Acumulate as pending data size and flush when possible.
       pass
