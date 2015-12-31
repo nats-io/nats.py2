@@ -157,9 +157,8 @@ class Parser(object):
 
           # Set next stage already before dispatching to callback.
           self.buf = self.buf[self.needed:]
-          i = self.buf.find(MSG_END)
-          if i > 0:
-            self.buf = self.buf[i+1:]
+          if MSG_END in self.buf[:2]:
+            self.buf = self.buf[2:]
             self.state = AWAITING_CONTROL_LINE
           else:
             raise ErrProtocol("nats: Wrong termination sequence for MSG")
