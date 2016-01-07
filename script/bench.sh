@@ -10,7 +10,7 @@ echo
 echo "| messages | bytes | duration | msgs/sec | max written | errors | varz in msgs| varz in bytes|"
 for nbytes in 1 10 100 1000; do 
   for messages in 100 1000 10000 100000 ; do
-    python examples/bench/pub.py $messages $nbytes;  2> /dev/null
+    python benchmarks/publish.py $messages $nbytes;  2> /dev/null
   done;
 done
 echo
@@ -21,7 +21,7 @@ echo
 echo "| messages | bytes | duration | msgs/sec | max written | errors | varz in msgs| varz in bytes|"
 for nbytes in 1 10 100 1000; do 
   for messages in 100 1000 10000 100000; do
-    python examples/bench/pub-unicode.py $messages $nbytes;  2> /dev/null
+    python benchmarks/pub-unicode.py $messages $nbytes;  2> /dev/null
   done;
 done
 echo
@@ -32,30 +32,13 @@ echo
 echo "| messages | bytes | duration | msgs/sec | max written | errors | varz in msgs| varz in bytes|"
 for nbytes in 10000 100000 1000000; do
   for messages in 100 1000 10000; do
-    python examples/bench/pub.py $messages $nbytes;  2> /dev/null
+    python benchmarks/publish.py $messages $nbytes;  2> /dev/null
   done;
 done
 
 for nbytes in 5000000; do 
   for messages in 2 ; do
-    python examples/bench/pub.py $messages $nbytes;  2> /dev/null
-  done;
-done
-echo
-echo
-
-echo "*** PUB request."
-echo
-echo "| messages | bytes | duration | msgs/sec | max written | errors | varz in msgs| varz in bytes|"
-for nbytes in 1 10 100 1000; do 
-  for messages in 100 1000 10000 ; do
-    python examples/bench/pub-request.py $messages $nbytes;  2> /dev/null
-  done;
-done
-
-for nbytes in 5000000; do 
-  for messages in 2 ; do
-    python examples/bench/pub-request.py $messages $nbytes;  2> /dev/null
+    python benchmarks/publish.py $messages $nbytes;  2> /dev/null
   done;
 done
 echo
@@ -66,7 +49,7 @@ echo
 echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | errors | varz in msgs| varz in bytes|"
 for nbytes in 1 10 100 1000 5000 ; do 
   for messages in 100 1000 10000 ; do
-    python examples/bench/request-response.py $messages $nbytes;  2> /dev/null
+    python benchmarks/request-response.py $messages $nbytes;  2> /dev/null
   done;
 done
 echo
@@ -77,7 +60,18 @@ echo
 echo "| messages | bytes |  duration | msgs/sec | max written | timeouts | errors | varz in msgs| varz in bytes|"
 for nbytes in 10000 20000 30000; do
   for messages in 100 200 300; do
-    python examples/bench/request-response.py $messages $nbytes;  2> /dev/null
+    python benchmarks/request-response.py $messages $nbytes;  2> /dev/null
+  done;
+done
+echo
+echo
+
+echo "*** Server roundtrip (ping/pong) latency client."
+echo
+echo "| messages | max_latency | duration | msgs/sec | total_written | timeouts | errors | varz in msgs| varz in bytes|"
+for max_latency in 0.5 0.4 0.3 0.2 0.1 0.05 0.04 0.03 0.02 0.01 0.005 0.004 0.003 0.002 0.001 0.0005 0.0004 0.0003 0.0002 0.0001 0.00005; do
+  for messages in 100 1000 10000; do
+    python benchmarks/flush-timeout.py $messages $max_latency;  2> /dev/null
   done;
 done
 echo
@@ -93,27 +87,3 @@ for nbytes in 100000; do
 done
 echo
 echo
-
-# echo "** Reference benchmarks"
-# echo 
-# echo "*** PUB using raw python sockets."
-# echo
-# echo "| messages | bytes | duration | msgs/sec | max written | broken pipe | resource unavailable | connection reset |"
-# for nbytes in 1 10 100 1000 10000; do 
-#   for messages in 1000 10000 100000 200000; do
-#     python examples/bench/pub-raw-socket.py $messages $nbytes; 2> /dev/null
-#   done;
-# done
-# echo
-# echo
-
-# echo "*** PUB using tornado IO."
-# echo
-# echo "| messages | bytes |         duration |      msgs/sec | max written | connection reset |"
-# for nbytes in 1 10 100 1000 10000; do 
-#   for messages in 1000 10000 100000; do
-#     python examples/bench/pub-tornado-write.py $messages $nbytes;  2> /dev/null
-#   done;
-# done
-# echo
-# echo
