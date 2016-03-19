@@ -33,7 +33,7 @@ PONG_PROTO    = b'{0}{1}'.format(PONG_OP, _CRLF_)
 # Defaults
 DEFAULT_PING_INTERVAL     = 120 # seconds
 MAX_OUTSTANDING_PINGS     = 2
-MAX_RECONNECT_ATTEMPTS    = 10
+MAX_RECONNECT_ATTEMPTS    = 60
 RECONNECT_TIME_WAIT       = 2   # seconds
 DEFAULT_CONNECT_TIMEOUT   = 2   # seconds
 
@@ -144,7 +144,7 @@ class Client(object):
     self.options["allow_reconnect"] = allow_reconnect
     self.options["tcp_nodelay"] = tcp_nodelay
 
-    # Seconds to wait before giving up In seconds
+    # In seconds
     self.options["connect_timeout"] = connect_timeout
     self.options["ping_interval"] = ping_interval
 
