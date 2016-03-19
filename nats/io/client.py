@@ -256,7 +256,7 @@ class Client(object):
       self._pending.append(cmd)
     self._pending_size += len(cmd)
 
-    if self.is_connected() or self.is_connecting() or self.is_reconnecting():
+    if self.is_connected or self.is_connecting or self.is_reconnecting:
       yield self._flush_pending()
     elif self._pending_size > DEFAULT_PENDING_SIZE:
       yield self._flush_pending()
@@ -278,7 +278,7 @@ class Client(object):
       pass
     except tornado.iostream.StreamClosedError as e:
       self._err = e
-      if self._error_cb is not None and not self.is_reconnecting():
+      if self._error_cb is not None and not self.is_reconnecting:
         self._error_cb(e)
       yield self._unbind()
 
@@ -295,7 +295,7 @@ class Client(object):
     payload_size = len(payload)
     if payload_size > self._max_payload_size:
       raise ErrMaxPayload
-    if self.is_closed():
+    if self.is_closed:
       raise ErrConnectionClosed
     self._publish(subject, _EMPTY_, payload, payload_size)
 
@@ -305,15 +305,15 @@ class Client(object):
     Publishes a message tagging it with a reply subscription
     which can be used by those receiving the message to respond:
 
-       ->> PUB hello   _INBOX.2007314fe0fcb2cdc2a2914c1 5
-       ->> MSG_PAYLOAD: world
-       <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+      ->> PUB hello   _INBOX.2007314fe0fcb2cdc2a2914c1 5
+      ->> MSG_PAYLOAD: world
+      <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
     payload_size = len(payload)
     if payload_size > self._max_payload_size:
       raise ErrMaxPayload
-    if self.is_closed():
+    if self.is_closed:
       raise ErrConnectionClosed
     self._publish(subject, reply, payload, payload_size)
 
@@ -323,7 +323,7 @@ class Client(object):
     Flush will perform a round trip to the server and return True
     when it receives the internal reply or raise a Timeout error.
     """
-    if self.is_closed():
+    if self.is_closed:
       raise ErrConnectionClosed
     yield self._flush_timeout(timeout)
 
@@ -388,7 +388,7 @@ class Client(object):
     in case of distributed queues or left empty if it is not the case, and a callback
     that will be dispatched message for processing them.
     """
-    if self.is_closed():
+    if self.is_closed:
       raise ErrConnectionClosed
 
     self._ssid += 1
@@ -482,7 +482,7 @@ class Client(object):
     yield self.io.write(cmd)
 
     # Refresh state of the parser upon reconnect.
-    if self.is_reconnecting():
+    if self.is_reconnecting:
       self._ps.reset()
 
     # Parser reads directly from the same IO as the client.
@@ -511,15 +511,19 @@ class Client(object):
       s = server
     return s
 
+  @property
   def is_closed(self):
     return self._status == Client.CLOSED
 
+  @property
   def is_reconnecting(self):
     return self._status == Client.RECONNECTING
 
+  @property
   def is_connected(self):
     return self._status == Client.CONNECTED
 
+  @property
   def is_connecting(self):
     return self._status == Client.CONNECTING
 
@@ -529,7 +533,7 @@ class Client(object):
     Unbind handles the disconnection from the server then
     attempts to reconnect if `allow_reconnect' is enabled.
     """
-    if self.is_connecting() or self.is_closed() or self.is_reconnecting():
+    if self.is_connecting or self.is_closed or self.is_reconnecting:
       return
 
     if self._disconnected_cb is not None:
@@ -538,10 +542,10 @@ class Client(object):
     if not self.options["allow_reconnect"]:
       self._process_disconnect()
       return
-    if self.is_connected():
+    if self.is_connected:
       self._status = Client.RECONNECTING
 
-      if self._ping_timer.is_running():
+      if self._ping_timer.is_running:
         self._ping_timer.stop()
 
       while True:
@@ -598,7 +602,7 @@ class Client(object):
         s.reconnects = 0
         self.io.set_close_callback(self._unbind)
 
-        if self.is_reconnecting() and self._reconnected_cb is not None:
+        if self.is_reconnecting and self._reconnected_cb is not None:
           self._reconnected_cb()
 
         return
@@ -632,7 +636,7 @@ class Client(object):
     and an optional boolean parameter to dispatch the disconnected
     and close callbacks if there are any.
     """
-    if self.is_closed():
+    if self.is_closed:
       # If connection already closed, then just set status explicitly.
       self._status = status
       return

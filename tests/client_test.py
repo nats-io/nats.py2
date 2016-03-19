@@ -447,7 +447,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                }
           with self.assertRaises(tornado.iostream.StreamBufferFullError):
                yield c.nc.connect(**options)
-          self.assertFalse(c.nc.is_connected())
+          self.assertFalse(c.nc.is_connected)
           self.assertEqual(1024, c.nc._max_read_buffer_size)
           self.assertEqual(50, c.nc._max_write_buffer_size)
           self.assertEqual(10, c.nc._read_chunk_size)
@@ -471,7 +471,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           yield nc.connect(io_loop=self.io_loop)
           yield tornado.gen.sleep(1)
           self.assertEqual(0, nc._pings_outstanding)
-          self.assertTrue(nc.is_connected())
+          self.assertTrue(nc.is_connected)
 
      @tornado.testing.gen_test
      def test_custom_ping_interval(self):
@@ -492,8 +492,8 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(10, len(pongs))
           self.assertEqual(1, nc._pings_outstanding)
           self.assertEqual(1, len(nc._pongs))
-          self.assertTrue(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
+          self.assertTrue(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
 
      @tornado.testing.gen_test
      def test_flush_timeout(self):
@@ -624,8 +624,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                b = nc._current_server
                self.assertNotEqual(a.uri, b.uri)
 
-          self.assertTrue(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
+          self.assertTrue(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:8224/connz')
@@ -690,7 +690,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                "reconnected_cb": component.reconnected_cb
                }
           yield component.nc.connect(**options)
-          self.assertEqual(True, component.nc.is_connected())
+          self.assertEqual(True, component.nc.is_connected)
           self.assertEqual(True, nc._server_info["auth_required"])
 
           log = Log()
@@ -727,8 +727,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
           # Wait for reconnect logic kick in and fail due to authorization error.
           yield tornado.gen.sleep(5)
-          self.assertFalse(component.nc.is_connected())
-          self.assertTrue(component.nc.is_reconnecting())
+          self.assertFalse(component.nc.is_connected)
+          self.assertTrue(component.nc.is_reconnecting)
 
           # No guarantee in getting the error before the connection is closed,
           # by the server though the behavior should be as below.
@@ -804,8 +804,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                self.assertNotEqual(a.uri, b.uri)
 
           # Should have reconnected already
-          self.assertTrue(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
+          self.assertTrue(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
 
           # Wait a bit until it flushes all...
           yield tornado.gen.sleep(1)
@@ -872,9 +872,9 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                b = nc._current_server
                self.assertEqual(a.uri, b.uri)
 
-          self.assertFalse(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
-          self.assertTrue(nc.is_closed())
+          self.assertFalse(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
+          self.assertTrue(nc.is_closed)
 
           with(self.assertRaises(ErrConnectionClosed)):
                yield nc.publish("hello", "world")
