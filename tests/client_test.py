@@ -289,6 +289,73 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(2, nc.stats['out_msgs'])
 
      @tornado.testing.gen_test
+     def test_unsubscribe(self):
+          nc = Client()
+          options = {
+               "io_loop": self.io_loop
+               }
+          yield nc.connect(**options)
+
+          log = Log()
+          sid = yield nc.subscribe("foo", cb=log.persist)
+          yield nc.publish("foo", b'A')
+          yield nc.publish("foo", b'B')
+          yield tornado.gen.sleep(1)
+          yield nc.unsubscribe(sid)
+          yield nc.flush()
+          yield nc.publish("foo", b'C')
+          yield nc.publish("foo", b'D')
+          self.assertEqual(2, len(log.records["foo"]))
+
+          self.assertEqual(b'A', log.records["foo"][0].data)
+          self.assertEqual(b'B', log.records["foo"][1].data)
+
+          # Should not exist by now
+          with self.assertRaises(KeyError):
+               nc._subs[sid].received
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/connz' % self.server_pool[0].http_port)
+          result = json.loads(response.body)
+          connz = result['connections'][0]
+          self.assertEqual(0, connz['subscriptions'])
+
+     @tornado.testing.gen_test
+     def test_unsubscribe_only_if_max_reached(self):
+          nc = Client()
+          options = {
+               "io_loop": self.io_loop
+               }
+          yield nc.connect(**options)
+
+          log = Log()
+          sid = yield nc.subscribe("foo", cb=log.persist)
+          yield nc.publish("foo", b'A')
+          yield nc.publish("foo", b'B')
+          yield nc.publish("foo", b'C')
+          yield tornado.gen.sleep(1)
+          self.assertEqual(3, len(log.records["foo"]))
+          yield nc.unsubscribe(sid, 3)
+          yield nc.publish("foo", b'D')
+          yield nc.flush()
+          self.assertEqual(3, len(log.records["foo"]))
+
+          self.assertEqual(b'A', log.records["foo"][0].data)
+          self.assertEqual(b'B', log.records["foo"][1].data)
+          self.assertEqual(b'C', log.records["foo"][2].data)
+
+          # Should not exist by now
+          yield tornado.gen.sleep(1)
+          with self.assertRaises(KeyError):
+               nc._subs[sid].received
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/connz' % self.server_pool[0].http_port)
+          result = json.loads(response.body)
+          connz = result['connections'][0]
+          self.assertEqual(0, connz['subscriptions'])
+
+     @tornado.testing.gen_test
      def test_request(self):
           nc = Client()
           yield nc.connect(io_loop=self.io_loop)

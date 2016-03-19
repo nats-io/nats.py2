@@ -399,6 +399,33 @@ class Client(object):
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
+  def unsubscribe(self, ssid, max_msgs=0):
+    """
+    Takes a subscription sequence id and removes the subscription
+    from the client, optionally after receiving more than max_msgs.
+    """
+    if self.is_closed:
+      raise ErrConnectionClosed
+
+    sub = None
+    try:
+      sub = self._subs[ssid]
+    except KeyError:
+      # Already unsubscribed.
+      return
+
+    # In case subscription has already received enough messages
+    # then announce to the server that we are unsubscribing and
+    # remove the callback locally too.
+    if max_msgs == 0 or sub.received >= max_msgs:
+      self._subs.pop(ssid, None)
+
+    # We will send these for all subs when we reconnect anyway,
+    # so that we can suppress here.
+    if not self.is_reconnecting:
+      yield self.auto_unsubscribe(ssid, max_msgs)
+
+  @tornado.gen.coroutine
   def _subscribe(self, sub, ssid):
     """
     Generates a SUB command given a Subscription and the subject sequence id.
@@ -458,7 +485,7 @@ class Client(object):
 
     msg = Msg(subject=subject.decode(), reply=reply.decode(), data=data)
     sub = self._subs[sid]
-    # sub.received += 1
+    sub.received += 1
     if sub.cb is not None:
       sub.cb(msg)
     elif sub.future is not None:
