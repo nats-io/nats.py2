@@ -38,7 +38,7 @@ def main():
 
     try:
         # Expect a single request and timeout after 500 ms
-        response = yield nc.timed_request("help", "Hi, need help!", 500)
+        response = yield nc.timed_request("help", "Hi, need help!", timeout=0.500)
         print("[Response]: %s" % response.data)
     except tornado.gen.TimeoutError, e:
         print("Timeout! Need to retry...")
@@ -58,8 +58,8 @@ def main():
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
     try:
         start = datetime.now()
-        # Make roundtrip to the server and timeout after 1000 ms
-        yield nc.flush(1000)
+        # Make roundtrip to the server and timeout after 1 second
+        yield nc.flush(1)
         end = datetime.now()
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:

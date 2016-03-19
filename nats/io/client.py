@@ -31,11 +31,11 @@ PING_PROTO    = b'{0}{1}'.format(PING_OP, _CRLF_)
 PONG_PROTO    = b'{0}{1}'.format(PONG_OP, _CRLF_)
 
 # Defaults
-DEFAULT_PING_INTERVAL     = 120 * 1000 # in ms
+DEFAULT_PING_INTERVAL     = 120 # seconds
 MAX_OUTSTANDING_PINGS     = 2
 MAX_RECONNECT_ATTEMPTS    = 10
-RECONNECT_TIME_WAIT       = 2 # in seconds
-DEFAULT_CONNECT_TIMEOUT   = 2 # in seconds
+RECONNECT_TIME_WAIT       = 2   # seconds
+DEFAULT_CONNECT_TIMEOUT   = 2   # seconds
 
 DEFAULT_READ_BUFFER_SIZE  = 1024 * 1024 * 100
 DEFAULT_WRITE_BUFFER_SIZE = None
@@ -139,12 +139,14 @@ class Client(object):
     self.options["verbose"]  = verbose
     self.options["pedantic"] = pedantic
     self.options["name"] = name
-    self.options["ping_interval"] = ping_interval
     self.options["max_outstanding_pings"] = max_outstanding_pings
     self.options["dont_randomize"] = dont_randomize
     self.options["allow_reconnect"] = allow_reconnect
-    self.options["connect_timeout"] = connect_timeout
     self.options["tcp_nodelay"] = tcp_nodelay
+
+    # Seconds to wait before giving up In seconds
+    self.options["connect_timeout"] = connect_timeout
+    self.options["ping_interval"] = ping_interval
 
     self._close_cb = close_cb
     self._error_cb = error_cb
@@ -188,7 +190,7 @@ class Client(object):
     # Prepare the ping pong interval.
     self._ping_timer = tornado.ioloop.PeriodicCallback(
       self._send_ping,
-      self.options["ping_interval"]
+      self.options["ping_interval"] * 1000
       )
     self._ping_timer.start()
 
@@ -200,15 +202,20 @@ class Client(object):
     self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._socket.setblocking(0)
     self._socket.settimeout(1.0)
+
     if self.options["tcp_nodelay"]:
       self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    self.io = tornado.iostream.IOStream(self._socket,
-                                        max_buffer_size=self._max_read_buffer_size,
-                                        max_write_buffer_size=self._max_write_buffer_size,
-                                        read_chunk_size=self._read_chunk_size,
-                                        )
+
+    self.io = tornado.iostream.IOStream(
+      self._socket,
+      max_buffer_size=self._max_read_buffer_size,
+      max_write_buffer_size=self._max_write_buffer_size,
+      read_chunk_size=self._read_chunk_size)
+
     future = self.io.connect((s.uri.hostname, s.uri.port))
-    yield tornado.gen.with_timeout(timedelta(seconds=self.options["connect_timeout"]), future)
+    yield tornado.gen.with_timeout(
+      timedelta(seconds=self.options["connect_timeout"]),
+      future)
 
   @tornado.gen.coroutine
   def _send_ping(self, future=None):
@@ -318,7 +325,7 @@ class Client(object):
     self._publish(subject, reply, payload, payload_size)
 
   @tornado.gen.coroutine
-  def flush(self, timeout=60000):
+  def flush(self, timeout=60):
     """
     Flush will perform a round trip to the server and return True
     when it receives the internal reply or raise a Timeout error.
@@ -335,7 +342,7 @@ class Client(object):
     """
     future = tornado.concurrent.Future()
     yield self._send_ping(future)
-    result = yield tornado.gen.with_timeout(timedelta(milliseconds=timeout), future)
+    result = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
     raise tornado.gen.Return(result)
 
   @tornado.gen.coroutine
@@ -359,7 +366,7 @@ class Client(object):
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
-  def timed_request(self, subject, payload, timeout=500):
+  def timed_request(self, subject, payload, timeout=0.5):
     """
     Implements the request/response pattern via pub/sub
     using an ephemeral subscription which will be published
@@ -378,7 +385,7 @@ class Client(object):
     sid = yield self.subscribe(inbox, _EMPTY_, None, future)
     yield self.auto_unsubscribe(sid, 1)
     yield self.publish_request(subject, inbox, payload)
-    msg = yield tornado.gen.with_timeout(timedelta(milliseconds=timeout), future)
+    msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
     raise tornado.gen.Return(msg)
 
   @tornado.gen.coroutine
@@ -598,7 +605,9 @@ class Client(object):
         yield self._flush_pending()
 
       # Restart the ping pong interval callback.
-      self._ping_timer = tornado.ioloop.PeriodicCallback(self._send_ping, self.options["ping_interval"])
+      self._ping_timer = tornado.ioloop.PeriodicCallback(
+        self._send_ping,
+        self.options["ping_interval"] * 1000)
       self._ping_timer.start()
       self._err = None
       self._pings_outstanding = 0
@@ -620,8 +629,9 @@ class Client(object):
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect
       # too soon to a server which has failed previously.
-      yield tornado.gen.Task(self._loop.add_timeout,
-                             timedelta(seconds=RECONNECT_TIME_WAIT))
+      yield tornado.gen.Task(
+        self._loop.add_timeout,
+        timedelta(seconds=RECONNECT_TIME_WAIT))
       try:
         yield self._server_connect(s)
         self._current_server = s

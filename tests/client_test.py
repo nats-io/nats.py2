@@ -554,7 +554,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
           nc = Client()
           nc._ps = Parser(nc)
-          yield nc.connect(io_loop=self.io_loop, ping_interval=0.1 * 1000)
+          yield nc.connect(io_loop=self.io_loop, ping_interval=0.1)
           yield tornado.gen.sleep(1)
           self.assertEqual(10, len(pongs))
           self.assertEqual(1, nc._pings_outstanding)
@@ -580,7 +580,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           nc._ps = Parser(nc, self)
           yield nc.connect(io_loop=self.io_loop)
           with self.assertRaises(tornado.gen.TimeoutError):
-               yield nc.flush(timeout=1000)
+               yield nc.flush(timeout=1)
           self.assertEqual(1, len(nc._pongs))
           self.assertEqual(1, nc._pings_outstanding)
 
@@ -599,7 +599,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           nc._ps = Parser(nc, self)
           yield nc.connect(io_loop=self.io_loop)
           with self.assertRaises(tornado.gen.TimeoutError):
-               yield nc.timed_request("hello", "world", 500)
+               yield nc.timed_request("hello", "world", timeout=0.5)
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
 
