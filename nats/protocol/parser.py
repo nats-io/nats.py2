@@ -35,14 +35,6 @@ AWAITING_MSG_PAYLOAD    = 3
 AWAITING_MINUS_ERR_ARG  = 4
 MAX_CONTROL_LINE_SIZE   = 1024
 
-class Msg(object):
-
-  def __init__(self, **params):
-    self.subject = params["subject"]
-    self.reply   = params["reply"]
-    self.data    = params["data"]
-    self.sid     = params["sid"]
-
 class Parser(object):
 
   def __init__(self, nc=None):
@@ -59,21 +51,12 @@ class Parser(object):
     self.needed = 0
     self.msg_arg = {}
 
-  def read(self, data=''):
-    """
-    Read loop for gathering bytes from the server in a buffer
-    of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
-    to the parsing callback for processing.
-    """
-    if not self.nc.io.closed():
-      self.nc.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
-
   def parse(self, data=''):
     """
     Parses the wire protocol from NATS for the client
     and dispatches the subscription callbacks.
     """
-    self.buf += data
+    self.buf = b''.join([self.buf, data])
     while self.buf:
       if self.state == AWAITING_CONTROL_LINE:
         scratch = self.buf[:MAX_CONTROL_LINE_SIZE]
@@ -111,61 +94,68 @@ class Parser(object):
       elif self.state == AWAITING_MINUS_ERR_ARG:
         scratch = self.buf[:MAX_CONTROL_LINE_SIZE]
 
-        i = scratch.find(_CRLF_)
-        if i > 0:
-          line = scratch[:i]
-          _, err = line.split(_SPC_, 1)
-          self.buf = self.buf[i+CRLF_SIZE:]
-          self.state = AWAITING_CONTROL_LINE
-          self.nc._process_err(err)
-        else:
+        # Skip until we have the full control line.
+        if _CRLF_ not in scratch:
           break
+
+        i = scratch.find(_CRLF_)
+        line = scratch[:i]
+        _, err = line.split(_SPC_, 1)
+
+        # Consume buffer and set next state before handling err.
+        self.buf = self.buf[i+CRLF_SIZE:]
+        self.state = AWAITING_CONTROL_LINE
+        self.nc._process_err(err)
 
       elif self.state == AWAITING_MSG_ARG:
         scratch = self.buf[:MAX_CONTROL_LINE_SIZE]
 
-        i = scratch.find(_CRLF_)
-        if i > 0:
-          line = scratch[:i]
-          args = line.split(_SPC_)
-
-          # Check in case of using a queue
-          args_size = len(args)
-          if args_size == 5:
-            self.msg_arg["subject"] = args[1]
-            self.msg_arg["sid"] = int(args[2])
-            self.msg_arg["reply"] = args[3]
-            self.needed = int(args[4])
-          elif args_size == 4:
-            self.msg_arg["subject"] = args[1]
-            self.msg_arg["sid"] = int(args[2])
-            self.msg_arg["reply"] = b''
-            self.needed = int(args[3])
-          else:
-            raise ErrProtocol("nats: Wrong number of arguments in MSG")
-          self.buf = self.buf[i+CRLF_SIZE:]
-          self.state = AWAITING_MSG_PAYLOAD
-        else:
+        # Skip until we have the full control line.
+        if _CRLF_ not in scratch:
           break
 
+        i = scratch.find(_CRLF_)
+        line = scratch[:i]
+        args = line.split(_SPC_)
+
+        # Check in case of using a queue.
+        args_size = len(args)
+        if args_size == 5:
+          self.msg_arg["subject"] = args[1]
+          self.msg_arg["sid"] = int(args[2])
+          self.msg_arg["reply"] = args[3]
+          self.needed = int(args[4])
+        elif args_size == 4:
+          self.msg_arg["subject"] = args[1]
+          self.msg_arg["sid"] = int(args[2])
+          self.msg_arg["reply"] = b''
+          self.needed = int(args[3])
+        else:
+          raise ErrProtocol("nats: Wrong number of arguments in MSG")
+
+        # Consume buffer and set next state.
+        self.buf = self.buf[i+CRLF_SIZE:]
+        self.state = AWAITING_MSG_PAYLOAD
+
       elif self.state == AWAITING_MSG_PAYLOAD:
-        if len(self.buf) >= self.needed+CRLF_SIZE:
-          payload = self.buf[:self.needed]
+        if len(self.buf) < self.needed+CRLF_SIZE:
+          break
+
+        # Protocol wise, a MSG should end with a break
+        # so signal protocol error if next char is not.
+        msg_op_payload = self.buf[:self.needed+CRLF_SIZE]
+        if msg_op_payload.endswith(MSG_END):
+          # Set next stage already before dispatching to callback.
+          self.buf = self.buf[self.needed+CRLF_SIZE:]
+          self.state = AWAITING_CONTROL_LINE
+
           subject = self.msg_arg["subject"]
           sid     = self.msg_arg["sid"]
           reply   = self.msg_arg["reply"]
-
-          # Set next stage already before dispatching to callback.
-          self.buf = self.buf[self.needed:]
-          if MSG_END in self.buf[:2]:
-            self.buf = self.buf[2:]
-            self.state = AWAITING_CONTROL_LINE
-          else:
-            raise ErrProtocol("nats: Wrong termination sequence for MSG")
-          msg = Msg(subject=subject, sid=sid, reply=reply, data=payload)
-          self.nc._process_msg(msg)
+          payload = msg_op_payload[:self.needed]
+          self.nc._process_msg(sid, subject, reply, payload)
         else:
-          break
+          raise ErrProtocol("nats: Wrong termination sequence for MSG")
 
 class ErrProtocol(Exception):
   def __str__(self):

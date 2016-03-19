@@ -1,4 +1,4 @@
-# Copyright 2015 Apcera Inc. All rights reserved.
+# Copyright 2015-2016 Apcera Inc. All rights reserved.
 
 import socket
 import json
@@ -18,9 +18,17 @@ from nats.io.utils  import *
 from nats.protocol.parser import *
 from nats import __lang__, __version__
 
-_CRLF_       = b'\r\n'
-_SPC_        = b' '
-_EMPTY_      = b''
+CONNECT_PROTO = b'{0} {1}{2}'
+PUB_PROTO     = b'{0} {1} {2} {3} {4}{5}{6}'
+SUB_PROTO     = b'{0} {1} {2} {3}{4}'
+UNSUB_PROTO   = b'{0} {1} {2}{3}'
+
+_CRLF_        = b'\r\n'
+_SPC_         = b' '
+_EMPTY_       = b''
+
+PING_PROTO    = b'{0}{1}'.format(PING_OP, _CRLF_)
+PONG_PROTO    = b'{0}{1}'.format(PONG_OP, _CRLF_)
 
 # Defaults
 DEFAULT_PING_INTERVAL     = 120 * 1000 # in ms
@@ -35,20 +43,19 @@ DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
 DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
 
-CONNECT_PROTO = b'{0} {1}{2}'
-PING_PROTO    = b'{0}{1}'.format(PING_OP, _CRLF_)
-PONG_PROTO    = b'{0}{1}'.format(PONG_OP, _CRLF_)
-PUB_PROTO     = b'{0} {1} {2} {3} {4}{5}{6}'
-SUB_PROTO     = b'{0} {1} {2} {3}{4}'
-UNSUB_PROTO   = b'{0} {1} {2}{3}'
-
 class Client(object):
+  """
+  Tornado based client for NATS.
+  """
 
   DISCONNECTED = 0
   CONNECTED    = 1
   CLOSED       = 2
   RECONNECTING = 3
   CONNECTING   = 4
+
+  def __repr__(self):
+    return "<nats client v{}>".format(__version__)
 
   def __init__(self):
     self.options = {}
@@ -120,12 +127,12 @@ class Client(object):
 
     Examples:
 
-       # Configure pool of NATS servers.
-       nc = nats.io.client.Client()
-       yield nc.connect({ 'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
+      # Configure pool of NATS servers.
+      nc = nats.io.client.Client()
+      yield nc.connect({ 'servers': ['nats://192.168.1.10:4222', 'nats://192.168.2.10:4222'] })
 
-       # User and pass are to be passed on the uri to authenticate.
-       yield nc.connect({ 'servers': ['nats://hello:world@192.168.1.10:4222'] })
+      # User and pass are to be passed on the uri to authenticate.
+      yield nc.connect({ 'servers': ['nats://hello:world@192.168.1.10:4222'] })
 
     """
     self.options["servers"]  = servers
@@ -338,11 +345,11 @@ class Client(object):
     using an ephemeral subscription which will be published
     with customizable limited interest.
 
-       ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
-       ->> UNSUB 90 1
-       ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
-       ->> MSG_PAYLOAD: world
-       <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+      ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
+      ->> UNSUB 90 1
+      ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
+      ->> MSG_PAYLOAD: world
+      <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
     inbox = new_inbox()
@@ -359,11 +366,11 @@ class Client(object):
     with a limited interest of 1 reply returning the response
     or raising a Timeout error.
 
-       ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
-       ->> UNSUB 90 1
-       ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
-       ->> MSG_PAYLOAD: world
-       <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+      ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
+      ->> UNSUB 90 1
+      ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
+      ->> MSG_PAYLOAD: world
+      <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
 
     """
     inbox = new_inbox()
@@ -439,21 +446,23 @@ class Client(object):
       self._pings_outstanding -= 1
 
   @tornado.gen.coroutine
-  def _process_msg(self, msg):
+  def _process_msg(self, sid, subject, reply, data):
     """
     Dispatches the received message to the stored subscription.
     It first tries to detect whether the message should be
     dispatched to a passed callback.  In case there was not
     a callback, then it tries to set the message into a future.
     """
-    sub = self._subs[msg.sid]
+    self.stats['in_msgs']  += 1
+    self.stats['in_bytes'] += len(data)
+
+    msg = Msg(subject=subject.decode(), reply=reply.decode(), data=data)
+    sub = self._subs[sid]
     # sub.received += 1
     if sub.cb is not None:
       sub.cb(msg)
     elif sub.future is not None:
       sub.future.set_result(msg)
-    self.stats['in_msgs']  += 1
-    self.stats['in_bytes'] += len(msg.data)
 
   @tornado.gen.coroutine
   def _process_connect_init(self):
@@ -477,7 +486,7 @@ class Client(object):
       self._ps.reset()
 
     # Parser reads directly from the same IO as the client.
-    self._loop.spawn_callback(self._ps.read)
+    self._loop.spawn_callback(self._read_loop)
 
     # Send a PING expecting a PONG to make a roundtrip to the server
     # and assert that sent messages sent this far have been processed.
@@ -662,14 +671,43 @@ class Client(object):
   def last_error(self):
     return self._err
 
-class Subscription(object):
+  def _read_loop(self, data=''):
+    """
+    Read loop for gathering bytes from the server in a buffer
+    of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
+    to the parsing callback for processing.
+    """
+    if not self.io.closed():
+      self.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self._read_loop, streaming_callback=self._ps.parse, partial=True)
 
-  def __init__(self, **kwargs):
-    self.subject  = kwargs["subject"]
-    self.queue    = kwargs["queue"]
-    self.cb       = kwargs["cb"]
-    self.future   = kwargs["future"]
-    # self.received = 0
+class Subscription():
+
+  def __init__(self,
+               subject='',
+               queue='',
+               cb=None,
+               future=None,
+               max_msgs=0,
+               ):
+    self.subject   = subject
+    self.queue     = queue
+    self.cb        = cb
+    self.future    = future
+    self.max_msgs  = max_msgs
+    self.received = 0
+
+class Msg(object):
+
+  def __init__(self,
+               subject='',
+               reply='',
+               data=b'',
+               sid=0,
+               ):
+    self.subject = subject
+    self.reply   = reply
+    self.data    = data
+    self.sid     = sid
 
 class Srv(object):
   """

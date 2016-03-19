@@ -461,7 +461,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
-               def read(self, data=''):
+               def parse(self, data=''):
                     self.t.assertEqual(1, len(self.nc._pongs))
                     self.nc._process_pong()
                     self.t.assertEqual(0, len(self.nc._pongs))
@@ -475,24 +475,25 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
      @tornado.testing.gen_test
      def test_custom_ping_interval(self):
-
+          pongs = []
           class Parser():
-               def __init__(self, nc, t):
+               def __init__(self, nc):
                     self.nc = nc
-                    self.t = t
 
-               def read(self, data=''):
-                    self.t.assertEqual(1, len(self.nc._pongs))
-                    self.nc._process_pong()
-                    self.t.assertEqual(0, len(self.nc._pongs))
+               def parse(self, data=''):
+                    if b'PONG' in data:
+                         pongs.append(data)
+                         self.nc._process_pong()
 
           nc = Client()
-          nc._ps = Parser(nc, self)
-          yield nc.connect(io_loop=self.io_loop, ping_interval=0.01)
+          nc._ps = Parser(nc)
+          yield nc.connect(io_loop=self.io_loop, ping_interval=0.1 * 1000)
           yield tornado.gen.sleep(1)
-          self.assertEqual(3, nc._pings_outstanding)
-          self.assertFalse(nc.is_connected())
-          self.assertTrue(nc.is_reconnecting())
+          self.assertEqual(10, len(pongs))
+          self.assertEqual(1, nc._pings_outstanding)
+          self.assertEqual(1, len(nc._pongs))
+          self.assertTrue(nc.is_connected())
+          self.assertFalse(nc.is_reconnecting())
 
      @tornado.testing.gen_test
      def test_flush_timeout(self):
@@ -502,21 +503,19 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
-               def read(self, data=''):
+               @tornado.gen.coroutine
+               def parse(self, data=''):
                     self.t.assertEqual(1, self.nc._pings_outstanding)
-                    self.t.assertEqual(1, len(self.nc._pongs))
+                    yield tornado.gen.sleep(2.0)
                     self.nc._process_pong()
-                    self.t.assertEqual(0, len(self.nc._pongs))
 
           nc = Client()
           nc._ps = Parser(nc, self)
           yield nc.connect(io_loop=self.io_loop)
           with self.assertRaises(tornado.gen.TimeoutError):
-               yield nc.flush(1)
+               yield nc.flush(timeout=1000)
           self.assertEqual(1, len(nc._pongs))
-          nc.flush(1)
-          self.assertEqual(2, nc._pings_outstanding)
-          self.assertEqual(2, len(nc._pongs))
+          self.assertEqual(1, nc._pings_outstanding)
 
      @tornado.testing.gen_test
      def test_timed_request_timeout(self):
@@ -526,7 +525,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
-               def read(self, data=''):
+               def parse(self, data=''):
                     self.nc._process_pong()
 
           nc = Client()
@@ -694,7 +693,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           self.assertEqual(True, component.nc.is_connected())
           self.assertEqual(True, nc._server_info["auth_required"])
 
-          log = Log(debug=True)
+          log = Log()
           sid_1 = yield component.nc.subscribe("foo",  "", log.persist)
           self.assertEqual(sid_1, 1)
           sid_2 = yield component.nc.subscribe("bar",  "", log.persist)
