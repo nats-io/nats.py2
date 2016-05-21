@@ -409,6 +409,14 @@ class Client(object):
     unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, limit, _CRLF_)
     self.send_command(unsub_cmd)
 
+  @tornado.gen.coroutine
+  def unsubscribe(self, sid):
+    """
+    Sends an UNSUB command to the server and unsubscribes immediatedly.
+    """
+    unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, _EMPTY_, _CRLF_)
+    self.send_command(unsub_cmd)
+
   def _process_ping(self):
     """
     The server will be periodically sending a PING, and if the the client
