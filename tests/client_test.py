@@ -24,6 +24,7 @@ from nats.io.errors import *
 from nats.io.client import Client, __version__
 from nats.io.utils  import new_inbox, INBOX_PREFIX
 from nats.protocol.parser import *
+from nats import __lang__, __version__
 
 class Gnatsd(object):
 
