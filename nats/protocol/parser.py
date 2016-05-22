@@ -1,8 +1,18 @@
-# Copyright 2015 Apcera Inc. All rights reserved.
+# Copyright 2015-2016 Apcera Inc. All rights reserved.
 
 """
 NATS network protocol parser.
 """
+
+import re
+import tornado.gen
+
+MSG_RE  = re.compile(b'\AMSG\s+([^\s]+)\s+([^\s]+)\s+(([^\s]+)[^\S\r\n]+)?(\d+)\r\n')
+OK_RE   = re.compile(b'\A\+OK\s*\r\n')
+ERR_RE  = re.compile(b'\A-ERR\s+(\'.+\')?\r\n')
+PING_RE = re.compile(b'\APING\s*\r\n')
+PONG_RE = re.compile(b'\APONG\s*\r\n')
+INFO_RE = re.compile(b'\AINFO\s+([^\r\n]+)\r\n')
 
 INFO_OP     = b'INFO'
 CONNECT_OP  = b'CONNECT'
@@ -25,144 +35,104 @@ CRLF_SIZE   = len(_CRLF_)
 OK_SIZE     = len(OK)
 PING_SIZE   = len(PING)
 PONG_SIZE   = len(PONG)
+MSG_OP_SIZE = len(MSG_OP)
+ERR_OP_SIZE = len(ERR_OP)
 
 # States
-AWAITING_CONTROL_LINE   = 1
-AWAITING_MSG_ARG        = 2
-AWAITING_MSG_PAYLOAD    = 3
-AWAITING_MSG_END        = 4
-AWAITING_MINUS_ERR_ARG  = 5
-MAX_CONTROL_LINE_SIZE   = 1024
-
-class Msg(object):
-
-  def __init__(self, **kwargs):
-    self.subject = kwargs["subject"]
-    self.reply   = kwargs["reply"]
-    self.data    = kwargs["data"]
-    self.sid     = kwargs["sid"]
+AWAITING_CONTROL_LINE  = 1
+AWAITING_MSG_PAYLOAD   = 2
+MAX_CONTROL_LINE_SIZE  = 1024
 
 class Parser(object):
 
-  def __init__(self, nc=None):
-    self.nc = nc
-    self.reset()
+    def __init__(self, nc=None):
+        self.nc = nc
+        self.reset()
 
-  def reset(self):
-    self.scratch = b''
-    self.state = AWAITING_CONTROL_LINE
-    self.needed = 0
-    self.msg_arg = {}
+    def __repr__(self):
+        return "<nats protocol parser state={0}>".format(self.state)
 
-  def read(self, data=''):
-    """
-    Read loop for gathering bytes from the server in a buffer
-    of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
-    to the parsing callback for processing.
-    """
-    if not self.nc.io.closed():
-      self.nc.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self.read, streaming_callback=self.parse, partial=True)
+    def reset(self):
+        self.buf = bytearray()
+        self.state = AWAITING_CONTROL_LINE
+        self.needed = 0
+        self.msg_arg = {}
 
-  def parse(self, data=''):
-    """
-    Parses the wire protocol from NATS for the client
-    and dispatches the subscription callbacks.
-    """
-    self.scratch += data
-    for i in self.scratch:
-      if self.state == AWAITING_CONTROL_LINE:
+    @tornado.gen.coroutine
+    def parse(self, data=b''):
+        """
+        Parses the wire protocol from NATS for the client
+        and dispatches the subscription callbacks.
+        """
+        self.buf.extend(data)
+        while self.buf:
+            if self.state == AWAITING_CONTROL_LINE:
+                msg = MSG_RE.match(self.buf)
+                if msg:
+                    try:
+                        subject, sid, _, reply, needed_bytes = msg.groups()
+                        self.msg_arg["subject"] = subject
+                        self.msg_arg["sid"] = int(sid)
+                        if reply:
+                            self.msg_arg["reply"] = reply
+                        else:
+                            self.msg_arg["reply"] = b''
+                        self.needed = int(needed_bytes)
+                        del self.buf[:msg.end()]
+                        self.state = AWAITING_MSG_PAYLOAD
+                        continue
+                    except:
+                        raise ErrProtocol("nats: malformed MSG")
 
-        # MSG
-        if self.scratch.startswith(MSG_OP):
-          self.state = AWAITING_MSG_ARG
+                ok = OK_RE.match(self.buf)
+                if ok:
+                    # Do nothing and just skip.
+                    del self.buf[:ok.end()]
+                    continue
 
-        # OK
-        elif self.scratch.startswith(OK):
-          # No op. But still consume OK from buffer and set next state.
-          if len(self.scratch) > OK_SIZE:
-            self.scratch = self.scratch[OK_SIZE:]
-          else:
-            self.scratch = b''
-            self.state = AWAITING_CONTROL_LINE
+                err = ERR_RE.match(self.buf)
+                if err:
+                    err_msg = err.groups()
+                    yield self.nc._process_err(err_msg)
+                    del self.buf[:err.end()]
+                    continue
 
-        # -ERR
-        elif self.scratch.startswith(ERR_OP):
-          self.state = AWAITING_MINUS_ERR_ARG
+                ping = PING_RE.match(self.buf)
+                if ping:
+                    del self.buf[:ping.end()]
+                    yield self.nc._process_ping()
+                    continue
 
-        # PONG
-        elif self.scratch.startswith(PONG):
-          self.nc._process_pong()
+                pong = PONG_RE.match(self.buf)
+                if pong:
+                    del self.buf[:pong.end()]
+                    yield self.nc._process_pong()
+                    continue
 
-          if len(self.scratch) > PONG_SIZE:
-            self.scratch = self.scratch[PONG_SIZE:]
-          else:
-            self.scratch = b''
-            self.state = AWAITING_CONTROL_LINE
+                # If nothing matched at this point, then probably
+                # a split buffer and need to gather more bytes,
+                # otherwise it would mean that there is an issue
+                # and we're getting malformed control lines.
+                if len(self.buf) < MAX_CONTROL_LINE_SIZE and _CRLF_ not in self.buf:
+                    break
+                else:
+                    raise ErrProtocol("nats: unknown protocol")
 
-        # PING
-        elif self.scratch.startswith(PING):
-          self.nc.send_command(PONG)
-          if len(self.scratch) > PING_SIZE:
-            self.scratch = self.scratch[PING_SIZE:]
-          else:
-            self.scratch = b''
-            self.state = AWAITING_CONTROL_LINE
+            elif self.state == AWAITING_MSG_PAYLOAD:
+                if len(self.buf) >= self.needed+CRLF_SIZE:
+                    subject = self.msg_arg["subject"]
+                    sid     = self.msg_arg["sid"]
+                    reply   = self.msg_arg["reply"]
 
-      elif self.state == AWAITING_MSG_ARG:
-        i = self.scratch.find(_CRLF_)
-        if i > 0:
-          line = self.scratch[:i]
-          args = line.split(_SPC_)
-
-          # Check in case of using a queue
-          args_size = len(args)
-          if args_size == 5:
-            self.msg_arg["subject"] = args[1]
-            self.msg_arg["sid"] = int(args[2])
-            self.msg_arg["reply"] = args[3]
-            self.needed = int(args[4])
-          elif args_size == 4:
-            self.msg_arg["subject"] = args[1]
-            self.msg_arg["sid"] = int(args[2])
-            self.msg_arg["reply"] = ""
-            self.needed = int(args[3])
-          else:
-            raise ErrProtocol("Wrong number of arguments in MSG")
-          self.scratch = self.scratch[i+CRLF_SIZE:]
-          self.state = AWAITING_MSG_PAYLOAD
-
-      elif self.state == AWAITING_MSG_PAYLOAD:
-        if len(self.scratch) >= self.needed:
-          payload = self.scratch[:self.needed]
-          subject = self.msg_arg["subject"]
-          sid     = self.msg_arg["sid"]
-          reply   = self.msg_arg["reply"]
-
-          # Set next stage already before dispatching to callback
-          self.scratch = self.scratch[self.needed:]
-          self.state = AWAITING_MSG_END
-
-          msg = Msg(subject=subject, sid=sid, reply=reply, data=payload)
-          self.nc._process_msg(msg)
-
-      elif self.state == AWAITING_MSG_END:
-        i = self.scratch.find(MSG_END)
-        if i > 0:
-          self.scratch = self.scratch[i+1:]
-          self.state = AWAITING_CONTROL_LINE
-
-      # -ERR 'error'
-      elif self.state == AWAITING_MINUS_ERR_ARG:
-        i = self.scratch.find(_CRLF_)
-        if i > 0:
-          line = self.scratch[:i]
-          _, err = line.split(_SPC_, 1)
-          self.nc._process_err(err)
-          if len(self.scratch) > i+CRLF_SIZE:
-            self.scratch = self.scratch[i+CRLF_SIZE:]
-          else:
-            self.scratch = b''
-            self.state = AWAITING_CONTROL_LINE
+                    # Consume msg payload from buffer and set next parser state.
+                    payload = bytes(self.buf[:self.needed])
+                    del self.buf[:self.needed+CRLF_SIZE]
+                    self.state = AWAITING_CONTROL_LINE
+                    yield self.nc._process_msg(sid, subject, reply, payload)
+                else:
+                    # Wait until we have enough bytes in buffer.
+                    break
 
 class ErrProtocol(Exception):
-  pass
+    def __str__(self):
+        return "nats: Protocol Error"

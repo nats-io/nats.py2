@@ -20,8 +20,8 @@ import os
 
 from datetime import timedelta
 from collections import defaultdict as Hash
+from nats.io import Client
 from nats.io.errors import *
-from nats.io.client import Client, __version__
 from nats.io.utils  import new_inbox, INBOX_PREFIX
 from nats.protocol.parser import *
 from nats import __lang__, __version__
@@ -215,27 +215,26 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertIn("max_payload", info_keys)
 
      @tornado.testing.gen_test(timeout=5)
-     def test_connect_error_callback(self):
+     def test_connect_fails(self):
 
           class SampleClient():
                def __init__(self):
                     self.nc = Client()
-                    self.err = ""
+                    self.disconnected_cb_called = False
 
-               def err_cb(self, e):
-                    self.err += str(e)
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
 
           client = SampleClient()
-          with self.assertRaises(ErrNoServers):
+          with self.assertRaises(NatsError):
                options = {
                     "servers": ["nats://127.0.0.1:4223"],
-                    "error_cb": client.err_cb,
+                    "close_cb": client.disconnected_cb,
                     "allow_reconnect": False,
                     "io_loop": self.io_loop
                     }
                yield client.nc.connect(**options)
-
-          self.assertEqual(socket.error, type(client.nc.last_error()))
+          self.assertFalse(client.disconnected_cb_called)
 
      @tornado.testing.gen_test
      def test_subscribe(self):
@@ -258,6 +257,110 @@ class ClientTest(tornado.testing.AsyncTestCase):
           result = json.loads(response.body)
           connz = result['connections'][0]
           self.assertEqual(2, connz['subscriptions'])
+
+     @tornado.testing.gen_test
+     def test_subscribe_sync(self):
+          nc = Client()
+          msgs = []
+
+          @tornado.gen.coroutine
+          def subscription_handler(msg):
+               # Futures for subscription are each processed
+               # in sequence.
+               if msg.subject == "tests.1":
+                    yield tornado.gen.sleep(1.0)
+               if msg.subject == "tests.3":
+                    yield tornado.gen.sleep(1.0)
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[1].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
+
+     @tornado.testing.gen_test
+     def test_subscribe_sync_non_coro(self):
+          nc = Client()
+          msgs = []
+
+          def subscription_handler(msg):
+               # Callback blocks so dispatched in sequence.
+               if msg.subject == "tests.1":
+                    time.sleep(0.5)
+               if msg.subject == "tests.3":
+                    time.sleep(0.2)
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[1].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
+
+     @tornado.testing.gen_test
+     def test_subscribe_async(self):
+          nc = Client()
+          msgs = []
+
+          @tornado.gen.coroutine
+          def subscription_handler(msg):
+               # Callback dispatched asynchronously and a coroutine
+               # so it does not block.
+               if msg.subject == "tests.1":
+                    yield tornado.gen.sleep(0.5)
+               if msg.subject == "tests.3":
+                    yield tornado.gen.sleep(0.2)
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe_async("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[4].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
+
+     @tornado.testing.gen_test
+     def test_subscribe_async_non_coro(self):
+          nc = Client()
+          msgs = []
+
+          def subscription_handler(msg):
+               # Dispatched asynchronously but would be received in sequence...
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe_async("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[1].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
 
      @tornado.testing.gen_test
      def test_publish(self):
@@ -289,6 +392,73 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(2, nc.stats['out_msgs'])
 
      @tornado.testing.gen_test
+     def test_unsubscribe(self):
+          nc = Client()
+          options = {
+               "io_loop": self.io_loop
+               }
+          yield nc.connect(**options)
+
+          log = Log()
+          sid = yield nc.subscribe("foo", cb=log.persist)
+          yield nc.publish("foo", b'A')
+          yield nc.publish("foo", b'B')
+          yield tornado.gen.sleep(1)
+          yield nc.unsubscribe(sid)
+          yield nc.flush()
+          yield nc.publish("foo", b'C')
+          yield nc.publish("foo", b'D')
+          self.assertEqual(2, len(log.records["foo"]))
+
+          self.assertEqual(b'A', log.records["foo"][0].data)
+          self.assertEqual(b'B', log.records["foo"][1].data)
+
+          # Should not exist by now
+          with self.assertRaises(KeyError):
+               nc._subs[sid].received
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/connz' % self.server_pool[0].http_port)
+          result = json.loads(response.body)
+          connz = result['connections'][0]
+          self.assertEqual(0, connz['subscriptions'])
+
+     @tornado.testing.gen_test
+     def test_unsubscribe_only_if_max_reached(self):
+          nc = Client()
+          options = {
+               "io_loop": self.io_loop
+               }
+          yield nc.connect(**options)
+
+          log = Log()
+          sid = yield nc.subscribe("foo", cb=log.persist)
+          yield nc.publish("foo", b'A')
+          yield nc.publish("foo", b'B')
+          yield nc.publish("foo", b'C')
+          yield tornado.gen.sleep(1)
+          self.assertEqual(3, len(log.records["foo"]))
+          yield nc.unsubscribe(sid, 3)
+          yield nc.publish("foo", b'D')
+          yield nc.flush()
+          self.assertEqual(3, len(log.records["foo"]))
+
+          self.assertEqual(b'A', log.records["foo"][0].data)
+          self.assertEqual(b'B', log.records["foo"][1].data)
+          self.assertEqual(b'C', log.records["foo"][2].data)
+
+          # Should not exist by now
+          yield tornado.gen.sleep(1)
+          with self.assertRaises(KeyError):
+               nc._subs[sid].received
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/connz' % self.server_pool[0].http_port)
+          result = json.loads(response.body)
+          connz = result['connections'][0]
+          self.assertEqual(0, connz['subscriptions'])
+
+     @tornado.testing.gen_test
      def test_request(self):
           nc = Client()
           yield nc.connect(io_loop=self.io_loop)
@@ -298,6 +468,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.replies = []
 
+               @tornado.gen.coroutine
                def receive_responses(self, msg=None):
                     self.replies.append(msg)
 
@@ -402,6 +573,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
           inbox = new_inbox()
           yield nc.publish_request("help.1", inbox, "hello")
           yield nc.publish_request("help.2", inbox, "world")
+          yield nc.flush()
           yield tornado.gen.sleep(1.0)
 
           http = tornado.httpclient.AsyncHTTPClient()
@@ -447,7 +619,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                }
           with self.assertRaises(tornado.iostream.StreamBufferFullError):
                yield c.nc.connect(**options)
-          self.assertFalse(c.nc.is_connected())
+          self.assertFalse(c.nc.is_connected)
           self.assertEqual(1024, c.nc._max_read_buffer_size)
           self.assertEqual(50, c.nc._max_write_buffer_size)
           self.assertEqual(10, c.nc._read_chunk_size)
@@ -461,9 +633,10 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
-               def read(self, data=''):
+               @tornado.gen.coroutine
+               def parse(self, data=''):
                     self.t.assertEqual(1, len(self.nc._pongs))
-                    self.nc._process_pong()
+                    yield self.nc._process_pong()
                     self.t.assertEqual(0, len(self.nc._pongs))
 
           nc = Client()
@@ -471,28 +644,30 @@ class ClientTest(tornado.testing.AsyncTestCase):
           yield nc.connect(io_loop=self.io_loop)
           yield tornado.gen.sleep(1)
           self.assertEqual(0, nc._pings_outstanding)
-          self.assertTrue(nc.is_connected())
+          self.assertTrue(nc.is_connected)
 
      @tornado.testing.gen_test
      def test_custom_ping_interval(self):
-
+          pongs = []
           class Parser():
-               def __init__(self, nc, t):
+               def __init__(self, nc):
                     self.nc = nc
-                    self.t = t
 
-               def read(self, data=''):
-                    self.t.assertEqual(1, len(self.nc._pongs))
-                    self.nc._process_pong()
-                    self.t.assertEqual(0, len(self.nc._pongs))
+               @tornado.gen.coroutine
+               def parse(self, data=''):
+                    if b'PONG' in data:
+                         pongs.append(data)
+                         yield self.nc._process_pong()
 
           nc = Client()
-          nc._ps = Parser(nc, self)
-          yield nc.connect(io_loop=self.io_loop, ping_interval=0.01)
+          nc._ps = Parser(nc)
+          yield nc.connect(io_loop=self.io_loop, ping_interval=0.1)
           yield tornado.gen.sleep(1)
-          self.assertEqual(3, nc._pings_outstanding)
-          self.assertFalse(nc.is_connected())
-          self.assertTrue(nc.is_reconnecting())
+
+          # Should have processed at least more than 5 pongs already
+          self.assertTrue(len(pongs) > 5)
+          self.assertTrue(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
 
      @tornado.testing.gen_test
      def test_flush_timeout(self):
@@ -502,21 +677,19 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
-               def read(self, data=''):
+               @tornado.gen.coroutine
+               def parse(self, data=''):
                     self.t.assertEqual(1, self.nc._pings_outstanding)
-                    self.t.assertEqual(1, len(self.nc._pongs))
-                    self.nc._process_pong()
-                    self.t.assertEqual(0, len(self.nc._pongs))
+                    yield tornado.gen.sleep(2.0)
+                    yield self.nc._process_pong()
 
           nc = Client()
           nc._ps = Parser(nc, self)
           yield nc.connect(io_loop=self.io_loop)
           with self.assertRaises(tornado.gen.TimeoutError):
-               yield nc.flush(1)
+               yield nc.flush(timeout=1)
           self.assertEqual(1, len(nc._pongs))
-          nc.flush(1)
-          self.assertEqual(2, nc._pings_outstanding)
-          self.assertEqual(2, len(nc._pongs))
+          self.assertEqual(1, nc._pings_outstanding)
 
      @tornado.testing.gen_test
      def test_timed_request_timeout(self):
@@ -526,14 +699,14 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
-               def read(self, data=''):
+               def parse(self, data=''):
                     self.nc._process_pong()
 
           nc = Client()
           nc._ps = Parser(nc, self)
           yield nc.connect(io_loop=self.io_loop)
           with self.assertRaises(tornado.gen.TimeoutError):
-               yield nc.timed_request("hello", "world", 500)
+               yield nc.timed_request("hello", "world", timeout=0.5)
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
 
@@ -625,8 +798,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                b = nc._current_server
                self.assertNotEqual(a.uri, b.uri)
 
-          self.assertTrue(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
+          self.assertTrue(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
 
           http = tornado.httpclient.AsyncHTTPClient()
           response = yield http.fetch('http://127.0.0.1:8224/connz')
@@ -691,10 +864,10 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                "reconnected_cb": component.reconnected_cb
                }
           yield component.nc.connect(**options)
-          self.assertEqual(True, component.nc.is_connected())
+          self.assertEqual(True, component.nc.is_connected)
           self.assertEqual(True, nc._server_info["auth_required"])
 
-          log = Log(debug=True)
+          log = Log()
           sid_1 = yield component.nc.subscribe("foo",  "", log.persist)
           self.assertEqual(sid_1, 1)
           sid_2 = yield component.nc.subscribe("bar",  "", log.persist)
@@ -728,8 +901,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
           # Wait for reconnect logic kick in and fail due to authorization error.
           yield tornado.gen.sleep(5)
-          self.assertFalse(component.nc.is_connected())
-          self.assertTrue(component.nc.is_reconnecting())
+          self.assertFalse(component.nc.is_connected)
+          self.assertTrue(component.nc.is_reconnecting)
 
           # No guarantee in getting the error before the connection is closed,
           # by the server though the behavior should be as below.
@@ -805,8 +978,8 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                self.assertNotEqual(a.uri, b.uri)
 
           # Should have reconnected already
-          self.assertTrue(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
+          self.assertTrue(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
 
           # Wait a bit until it flushes all...
           yield tornado.gen.sleep(1)
@@ -815,8 +988,11 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           response = yield http.fetch('http://127.0.0.1:8224/connz')
           result = json.loads(response.body)
           connz = result['connections'][0]
-          self.assertEqual(c.max_messages - c.disconnected_at, connz['in_msgs'])
+          self.assertTrue(connz['in_msgs'] > 0)
           self.assertTrue(c.pending_bytes_when_reconnected > c.pending_bytes_when_closed)
+
+          # Give a small margin of error in case we didn't grab the
+          # self.assertTrue(c.max_messages - c.disconnected_at - 5 < connz['in_msgs'] < c.max_messages - c.disconnected_at + 5)
 
           # FIXME: Race with subscription not present by the time
           # we flush the buffer again so can't receive messages
@@ -873,9 +1049,9 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                b = nc._current_server
                self.assertEqual(a.uri, b.uri)
 
-          self.assertFalse(nc.is_connected())
-          self.assertFalse(nc.is_reconnecting())
-          self.assertTrue(nc.is_closed())
+          self.assertFalse(nc.is_connected)
+          self.assertFalse(nc.is_reconnecting)
+          self.assertTrue(nc.is_closed)
 
           with(self.assertRaises(ErrConnectionClosed)):
                yield nc.publish("hello", "world")

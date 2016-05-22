@@ -2,7 +2,7 @@
 import tornado.ioloop
 import tornado.gen
 import time
-from nats.io.client import Client as NATS
+from nats.io import Client as NATS
 
 @tornado.gen.coroutine
 def main():
@@ -28,6 +28,21 @@ def main():
         yield nc.publish("discover", "pong")
 
     yield nc.subscribe("discover", "", subscriber)
+
+    @tornado.gen.coroutine
+    def async_subscriber(msg):
+        # First request takes longer, while others are still processed.
+        if msg.subject == "requests.1":
+            yield tornado.gen.sleep(0.5)
+        print("Processed request [{0}]: {1}".format(msg.subject, msg))
+
+    # Create asynchronous subscription and make roundtrip to server
+    # to ensure that subscriptions have been processed.
+    yield nc.subscribe_async("requests.*", cb=async_subscriber)
+    yield nc.flush()
+    for i in range(1, 10):
+        yield nc.publish("requests.{0}".format(i), "example")
+    yield tornado.gen.sleep(1)
 
     while True:
         # Confirm stats to implement basic throttling logic.
