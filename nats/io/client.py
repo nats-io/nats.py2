@@ -401,7 +401,7 @@ class Client(object):
     raise tornado.gen.Return(msg)
 
   @tornado.gen.coroutine
-  def subscribe(self, subject="", queue="", cb=None, future=None):
+  def subscribe(self, subject="", queue="", cb=None, future=None, max_msgs=0, is_async=False):
     """
     Sends a SUB command to the server. Takes a queue parameter which can be used
     in case of distributed queues or left empty if it is not the case, and a callback
@@ -412,9 +412,26 @@ class Client(object):
 
     self._ssid += 1
     sid = self._ssid
-    sub = Subscription(subject=subject, queue=queue, cb=cb, future=future)
+    sub = Subscription(
+      subject=subject,
+      queue=queue,
+      cb=cb,
+      future=future,
+      max_msgs=max_msgs,
+      is_async=is_async,
+      )
     self._subs[sid] = sub
     yield self._subscribe(sub, sid)
+    raise tornado.gen.Return(sid)
+
+  @tornado.gen.coroutine
+  def subscribe_async(self, subject, **kwargs):
+    """
+    Schedules callback from subscription to be processed asynchronously
+    in the next iteration of the loop.
+    """
+    kwargs["is_async"] = True
+    sid = yield self.subscribe(subject, **kwargs)
     raise tornado.gen.Return(sid)
 
   @tornado.gen.coroutine
@@ -506,7 +523,13 @@ class Client(object):
     sub = self._subs[sid]
     sub.received += 1
     if sub.cb is not None:
-      self._loop.spawn_callback(sub.cb, msg)
+      if sub.is_async:
+        self._loop.spawn_callback(sub.cb, msg)
+      else:
+        # Call it and take the possible future in the loop.
+        maybe_future = sub.cb(msg)
+        if maybe_future is not None and type(maybe_future) is tornado.concurrent.Future:
+          yield maybe_future
     elif sub.future is not None:
       sub.future.set_result(msg)
 
@@ -789,6 +812,7 @@ class Subscription():
                subject='',
                queue='',
                cb=None,
+               is_async=False,
                future=None,
                max_msgs=0,
                ):
@@ -797,6 +821,7 @@ class Subscription():
     self.cb        = cb
     self.future    = future
     self.max_msgs  = max_msgs
+    self.is_async  = is_async
     self.received = 0
 
 class Msg(object):

@@ -57,6 +57,7 @@ def main():
         sys.stderr.write("ERROR: {0}".format(e))
         show_usage_and_die()
 
+    @tornado.gen.coroutine
     def handler(msg):
         global received
         received += 1

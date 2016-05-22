@@ -259,12 +259,68 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(2, connz['subscriptions'])
 
      @tornado.testing.gen_test
+     def test_subscribe_sync(self):
+          nc = Client()
+          msgs = []
+
+          @tornado.gen.coroutine
+          def subscription_handler(msg):
+               # Futures for subscription are each processed
+               # in sequence.
+               if msg.subject == "tests.1":
+                    yield tornado.gen.sleep(1.0)
+               if msg.subject == "tests.3":
+                    yield tornado.gen.sleep(1.0)
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[1].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
+
+     @tornado.testing.gen_test
+     def test_subscribe_sync_non_coro(self):
+          nc = Client()
+          msgs = []
+
+          def subscription_handler(msg):
+               # Callback blocks so dispatched in sequence.
+               if msg.subject == "tests.1":
+                    time.sleep(0.5)
+               if msg.subject == "tests.3":
+                    time.sleep(0.2)
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[1].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
+
+     @tornado.testing.gen_test
      def test_subscribe_async(self):
           nc = Client()
           msgs = []
 
           @tornado.gen.coroutine
           def subscription_handler(msg):
+               # Callback dispatched asynchronously and a coroutine
+               # so it does not block.
                if msg.subject == "tests.1":
                     yield tornado.gen.sleep(0.5)
                if msg.subject == "tests.3":
@@ -272,15 +328,37 @@ class ClientTest(tornado.testing.AsyncTestCase):
                msgs.append(msg)
 
           yield nc.connect(io_loop=self.io_loop)
-          sid = yield nc.subscribe("tests.>", cb=subscription_handler)
+          sid = yield nc.subscribe_async("tests.>", cb=subscription_handler)
 
           for i in range(0, 5):
-               yield nc.publish("tests.{}".format(i), b'bar')
+               yield nc.publish("tests.{0}".format(i), b'bar')
 
           # Wait a bit for messages to be received.
           yield tornado.gen.sleep(4.0)
           self.assertEqual(5, len(msgs))
           self.assertEqual("tests.1", msgs[4].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
+
+     @tornado.testing.gen_test
+     def test_subscribe_async_non_coro(self):
+          nc = Client()
+          msgs = []
+
+          def subscription_handler(msg):
+               # Dispatched asynchronously but would be received in sequence...
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe_async("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{0}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[1].subject)
           self.assertEqual("tests.3", msgs[3].subject)
           yield nc.close()
 
@@ -390,6 +468,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.replies = []
 
+               @tornado.gen.coroutine
                def receive_responses(self, msg=None):
                     self.replies.append(msg)
 
@@ -554,9 +633,10 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.t = t
 
+               @tornado.gen.coroutine
                def parse(self, data=''):
                     self.t.assertEqual(1, len(self.nc._pongs))
-                    self.nc._process_pong()
+                    yield self.nc._process_pong()
                     self.t.assertEqual(0, len(self.nc._pongs))
 
           nc = Client()
@@ -573,10 +653,11 @@ class ClientTest(tornado.testing.AsyncTestCase):
                def __init__(self, nc):
                     self.nc = nc
 
+               @tornado.gen.coroutine
                def parse(self, data=''):
                     if b'PONG' in data:
                          pongs.append(data)
-                         self.nc._process_pong()
+                         yield self.nc._process_pong()
 
           nc = Client()
           nc._ps = Parser(nc)
@@ -602,7 +683,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
                def parse(self, data=''):
                     self.t.assertEqual(1, self.nc._pings_outstanding)
                     yield tornado.gen.sleep(2.0)
-                    self.nc._process_pong()
+                    yield self.nc._process_pong()
 
           nc = Client()
           nc._ps = Parser(nc, self)

@@ -33,6 +33,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--count', default=DEFAULT_NUM_MSGS, type=int)
     parser.add_argument('-S', '--subject', default='test')
+    parser.add_argument('-t', '--subtype', default='sync')
     parser.add_argument('--servers', default=[], action='append')
     args = parser.parse_args()
 
@@ -49,6 +50,7 @@ def main():
         sys.stderr.write("ERROR: {0}".format(e))
         show_usage_and_die()
 
+    @tornado.gen.coroutine
     def handler(msg):
         global received
         received += 1
@@ -59,7 +61,13 @@ def main():
             sys.stdout.write("*")
             sys.stdout.flush()
 
-    yield nc.subscribe(args.subject, cb=handler)
+    if args.subtype == 'sync':
+        yield nc.subscribe(args.subject, cb=handler)
+    elif args.subtype == 'async':
+        yield nc.subscribe_async(args.subject, cb=handler)
+    else:
+        sys.stderr.write("ERROR: Unsupported type of subscription {0}".format(e))
+        show_usage_and_die()
 
     # Start the benchmark
     start = time.time()
