@@ -16,6 +16,7 @@ from datetime import timedelta
 from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser import *
+from nats import __lang__, __version__
 
 _CRLF_       = b'\r\n'
 _SPC_        = b' '
