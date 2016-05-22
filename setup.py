@@ -1,5 +1,5 @@
 from setuptools import setup, find_packages
-from nats.io.client import __version__
+from nats import __version__
 
 setup(
   name='nats-client',

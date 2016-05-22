@@ -18,16 +18,7 @@ with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
 ## Getting Started
 
 ```bash
-git clone https://github.com/nats-io/python-nats
-cd python-nats
-
-# Only dependency is Tornado so it must be installed first: 
-pip install tornado
-
-# OR using pip
-pip install -r requirements.txt
-
-python setup.py install
+pip install nats-client
 ```
 
 ## Basic Usage
@@ -39,7 +30,7 @@ import tornado.gen
 import time
 from datetime import datetime
 from nats.io.utils  import new_inbox
-from nats.io.client import Client as NATS
+from nats.io import Client as NATS
 
 @tornado.gen.coroutine
 def main():
@@ -111,7 +102,7 @@ if __name__ == '__main__':
 import tornado.ioloop
 import tornado.gen
 from datetime import timedelta
-from nats.io.client import Client as NATS
+from nats.io import Client as NATS
 from nats.io.errors import ErrConnectionClosed
 
 @tornado.gen.coroutine
@@ -184,7 +175,7 @@ if __name__ == '__main__':
 import tornado.ioloop
 import tornado.gen
 import time
-from nats.io.client import Client as NATS
+from nats.io import Client as NATS
 
 @tornado.gen.coroutine
 def main():
@@ -215,7 +206,7 @@ if __name__ == '__main__':
 import tornado.ioloop
 import tornado.gen
 import time
-from nats.io.client import Client as NATS
+from nats.io import Client as NATS
 
 @tornado.gen.coroutine
 def main():
