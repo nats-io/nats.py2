@@ -605,7 +605,8 @@ class Client(object):
 
       # Replay all the subscriptions in case there were some.
       for ssid, sub in self._subs.items():
-        yield self._subscribe(sub, ssid)
+        sub_cmd = SUB_PROTO.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
+        yield self.io.write(sub_cmd)
 
       # If reconnecting, flush any pending bytes.
       if len(self._pending) > 0:
