@@ -666,8 +666,6 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
           # Should have processed at least more than 5 pongs already
           self.assertTrue(len(pongs) > 5)
-          self.assertEqual(1, nc._pings_outstanding)
-          self.assertEqual(1, len(nc._pongs))
           self.assertTrue(nc.is_connected)
           self.assertFalse(nc.is_reconnecting)
 
