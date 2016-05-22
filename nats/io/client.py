@@ -286,7 +286,8 @@ class Client(object):
       yield self._flush_pending()
 
   def _publish(self, subject, reply, payload, payload_size):
-    pub_cmd = PUB_PROTO.format(PUB_OP, subject, reply, payload_size, _CRLF_, payload, _CRLF_)
+    payload_size_bytes = ("%d" % payload_size).encode()
+    pub_cmd = b''.join([PUB_OP, _SPC_, subject.encode(), _SPC_, reply, _SPC_, payload_size_bytes, _CRLF_, payload, _CRLF_])
     self.stats['out_msgs']  += 1
     self.stats['out_bytes'] += payload_size
     self.send_command(pub_cmd)
@@ -447,18 +448,22 @@ class Client(object):
     """
     Generates a SUB command given a Subscription and the subject sequence id.
     """
-    sub_cmd = SUB_PROTO.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
+    sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(), _SPC_, sub.queue.encode(), _SPC_, ("%d" % ssid).encode(), _CRLF_])
     self.send_command(sub_cmd)
     yield self._flush_pending()
 
   @tornado.gen.coroutine
-  def auto_unsubscribe(self, sid, limit):
+  def auto_unsubscribe(self, sid, limit=1):
     """
     Sends an UNSUB command to the server.  Unsubscribe is one of the basic building
     blocks in order to be able to define request/response semantics via pub/sub
     by announcing the server limited interest a priori.
     """
-    unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, limit, _CRLF_)
+    b_limit = b''
+    if limit > 0:
+      b_limit = ("%d" % limit).encode()
+    b_sid = ("%d" % sid).encode()
+    unsub_cmd = b''.join([UNSUB_OP, _SPC_, b_sid, _SPC_, b_limit, _CRLF_])
     self.send_command(unsub_cmd)
     yield self._flush_pending()
 
