@@ -1,5 +1,5 @@
-from setuptools import setup
-from nats.io.client import __version__
+from setuptools import setup, find_packages
+from nats import __version__
 
 setup(
   name='nats-client',
@@ -10,9 +10,7 @@ setup(
   author='Waldemar Quevedo',
   author_email='wally@apcera.com',
   license='MIT License',
-  packages=['nats', 'nats.io', 'nats.protocol'],
-  install_requires=[
-    'tornado',
-  ],
+  packages=find_packages(),
+  install_requires=['tornado==4.2'],
   zip_safe=True,
 )

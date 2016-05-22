@@ -17,8 +17,6 @@ from nats.io.errors import *
 from nats.io.utils  import *
 from nats.protocol.parser import *
 
-__version__  = b'0.2.2'
-__lang__     = b'python2'
 _CRLF_       = b'\r\n'
 _SPC_        = b' '
 _EMPTY_      = b''
@@ -407,6 +405,14 @@ class Client(object):
     by announcing the server limited interest a priori.
     """
     unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, limit, _CRLF_)
+    self.send_command(unsub_cmd)
+
+  @tornado.gen.coroutine
+  def unsubscribe(self, sid):
+    """
+    Sends an UNSUB command to the server and unsubscribes immediatedly.
+    """
+    unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, _EMPTY_, _CRLF_)
     self.send_command(unsub_cmd)
 
   def _process_ping(self):
