@@ -6,19 +6,22 @@ Exported errors which can be thrown by the NATS client.
 
 import socket
 
-class ErrAuthorization(Exception):
+class NatsError(Exception):
     pass
 
-class ErrConnectionClosed(Exception):
+class ErrAuthorization(NatsError):
     pass
 
-class ErrSecureConnRequired(Exception):
+class ErrConnectionClosed(NatsError):
     pass
 
-class ErrJsonParse(Exception):
+class ErrSecureConnRequired(NatsError):
     pass
 
-class ErrSlowConsumer(Exception):
+class ErrJsonParse(NatsError):
+    pass
+
+class ErrSlowConsumer(NatsError):
     """
     The client becomes a slow consumer if the server ends up
     holding more than the allowed max limit of pending data size
@@ -26,14 +29,14 @@ class ErrSlowConsumer(Exception):
     """
     pass
 
-class ErrStaleConnection(Exception):
+class ErrStaleConnection(NatsError):
     """
     A connection becomes stale if there is a transgression
     in the number of maximum allowed pings not being responded.
     """
     pass
 
-class ErrMaxPayload(Exception):
+class ErrMaxPayload(NatsError):
     """
     Error raised upon publish in case the server ends up sending
     more bytes than the limit allowed by the server announces
@@ -41,7 +44,7 @@ class ErrMaxPayload(Exception):
     """
     pass
 
-class ErrNoServers(Exception):
+class ErrNoServers(NatsError):
     """
     Raised when the number of reconnect attempts is exhausted
     when reconnecting to a server/set of servers, or if the

@@ -24,6 +24,16 @@ PUB_PROTO     = b'{0} {1} {2} {3} {4}{5}{6}'
 SUB_PROTO     = b'{0} {1} {2} {3}{4}'
 UNSUB_PROTO   = b'{0} {1} {2}{3}'
 
+INFO_OP       = b'INFO'
+CONNECT_OP    = b'CONNECT'
+PUB_OP        = b'PUB'
+MSG_OP        = b'MSG'
+SUB_OP        = b'SUB'
+UNSUB_OP      = b'UNSUB'
+PING_OP       = b'PING'
+PONG_OP       = b'PONG'
+OK_OP         = b'+OK'
+ERR_OP        = b'-ERR'
 _CRLF_        = b'\r\n'
 _SPC_         = b' '
 _EMPTY_       = b''
@@ -521,19 +531,31 @@ class Client(object):
     if self.is_reconnecting:
       self._ps.reset()
 
+    # Send a PING expecting a PONG to make a roundtrip to the server
+    # and assert that sent messages sent this far have been processed.
+    yield self.io.write(PING_PROTO)
+
+    # FIXME: Add readline timeout for these.
+    next_op = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
+    if self.options["verbose"] and OK_OP in next_op:
+      next_op = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
+    if ERR_OP in next_op:
+      err_line = next_op.decode()
+      _, err_msg = err_line.split(_SPC_, 1)
+      # FIXME: Maybe handling could be more special here,
+      # checking for ErrAuthorization for example.
+      # yield from self._process_err(err_msg)
+      raise NatsError("nats: "+err_msg.rstrip('\r\n'))
+
+    if PONG_PROTO in next_op:
+      self._status = Client.CONNECTED
+
     # Parser reads directly from the same IO as the client.
     self._loop.spawn_callback(self._read_loop)
 
     # Queue and flusher for coalescing writes to the server.
     self._flush_queue = tornado.queues.Queue(maxsize=1024)
     self._loop.spawn_callback(self._flusher_loop)
-
-    # Send a PING expecting a PONG to make a roundtrip to the server
-    # and assert that sent messages sent this far have been processed.
-    # Reply from server should be handled by the parsing loop already
-    # at this point.
-    yield self.io.write(PING_PROTO)
-    yield self.flush()
 
   def _next_server(self):
     """
@@ -608,10 +630,6 @@ class Client(object):
         sub_cmd = SUB_PROTO.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
         yield self.io.write(sub_cmd)
 
-      # If reconnecting, flush any pending bytes.
-      if len(self._pending) > 0:
-        yield self._flush_pending()
-
       # Restart the ping pong interval callback.
       self._ping_timer = tornado.ioloop.PeriodicCallback(
         self._send_ping,
@@ -620,7 +638,17 @@ class Client(object):
       self._err = None
       self._pings_outstanding = 0
       self._pongs = []
+
+      # Flush any pending bytes from reconnect
+      if len(self._pending) > 0:
+        yield self._flush_pending()
+
+      # Reconnected at this point
       self._status = Client.CONNECTED
+
+      # Roundtrip to the server to ensure connection
+      # is healthy at this point.
+      yield self.flush()
 
   @tornado.gen.coroutine
   def _schedule_primary_and_connect(self):
@@ -727,7 +755,11 @@ class Client(object):
     to the parsing callback for processing.
     """
     if not self.io.closed():
-      self.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self._read_loop, streaming_callback=self._ps.parse, partial=True)
+      self.io.read_bytes(
+        MAX_CONTROL_LINE_SIZE,
+        callback=self._read_loop,
+        streaming_callback=self._ps.parse,
+        partial=True)
 
   @tornado.gen.coroutine
   def _flusher_loop(self):
