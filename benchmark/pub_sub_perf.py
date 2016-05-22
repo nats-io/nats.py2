@@ -8,7 +8,7 @@ from nats.io.client import Client as NATS
 DEFAULT_NUM_MSGS = 100000
 DEFAULT_MSG_SIZE = 16
 DEFAULT_BATCH_SIZE = 100
-HASH_MODULO = 2500
+HASH_MODULO = 1000
 
 def show_usage():
     message = """
@@ -74,7 +74,7 @@ def main():
             to_send -= 1
             yield nc.publish(args.subject, payload)
             if (to_send % HASH_MODULO) == 0:
-                sys.stdout.write("+")
+                sys.stdout.write("#")
                 sys.stdout.flush()
             if to_send == 0:
                 break

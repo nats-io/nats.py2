@@ -9,6 +9,7 @@ import tornado.concurrent
 import tornado.escape
 import tornado.gen
 import tornado.ioloop
+import tornado.queues
 
 from random import shuffle
 from urlparse import urlparse
@@ -89,6 +90,8 @@ class Client(object):
     # Parser with state for processing the wire protocol.
     self._ps = Parser(self)
     self._err = None
+    self._flush_queue = None
+    self._flusher_task = None
 
     # Ping interval to disconnect from unhealthy servers.
     self._ping_timer = None
@@ -183,6 +186,11 @@ class Client(object):
     self._status = Client.CONNECTING
     yield self._process_connect_init()
 
+    # Flush pending data before continuing in connected status.
+    # FIXME: Could use future here and wait for an error result
+    # to bail earlier in case there are errors in the connection.
+    yield self._flush_pending()
+
     # First time connecting to NATS so if there were no errors,
     # we can consider to be connected at this point.
     self._status = Client.CONNECTED
@@ -222,7 +230,8 @@ class Client(object):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
       yield self._unbind()
     else:
-      yield self.send_command(PING_PROTO, priority=True)
+      yield self.io.write(PING_PROTO)
+      yield self._flush_pending()
       if future is None:
         future = tornado.concurrent.Future()
       self._pings_outstanding += 1
@@ -263,9 +272,7 @@ class Client(object):
       self._pending.append(cmd)
     self._pending_size += len(cmd)
 
-    if self.is_connected or self.is_connecting or self.is_reconnecting:
-      yield self._flush_pending()
-    elif self._pending_size > DEFAULT_PENDING_SIZE:
+    if len(self._pending) > DEFAULT_PENDING_SIZE:
       yield self._flush_pending()
 
   def _publish(self, subject, reply, payload, payload_size):
@@ -276,18 +283,9 @@ class Client(object):
 
   @tornado.gen.coroutine
   def _flush_pending(self):
-    try:
-      yield self.io.write(b''.join(self._pending))
-      self._pending = []
-      self._pending_size = 0
-    except tornado.iostream.StreamBufferFullError:
-      # Acumulate as pending data size and flush when possible.
-      pass
-    except tornado.iostream.StreamClosedError as e:
-      self._err = e
-      if self._error_cb is not None and not self.is_reconnecting:
-        self._error_cb(e)
-      yield self._unbind()
+    if not self.is_connected:
+      return
+    yield self._flush_queue.put(None)
 
   @tornado.gen.coroutine
   def publish(self, subject, payload):
@@ -305,6 +303,8 @@ class Client(object):
     if self.is_closed:
       raise ErrConnectionClosed
     self._publish(subject, _EMPTY_, payload, payload_size)
+    if self._flush_queue.empty():
+      yield self._flush_pending()
 
   @tornado.gen.coroutine
   def publish_request(self, subject, reply, payload):
@@ -439,6 +439,7 @@ class Client(object):
     """
     sub_cmd = SUB_PROTO.format(SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
     self.send_command(sub_cmd)
+    yield self._flush_pending()
 
   @tornado.gen.coroutine
   def auto_unsubscribe(self, sid, limit):
@@ -449,6 +450,7 @@ class Client(object):
     """
     unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, limit, _CRLF_)
     self.send_command(unsub_cmd)
+    yield self._flush_pending()
 
   @tornado.gen.coroutine
   def unsubscribe(self, sid):
@@ -522,10 +524,15 @@ class Client(object):
     # Parser reads directly from the same IO as the client.
     self._loop.spawn_callback(self._read_loop)
 
+    # Queue and flusher for coalescing writes to the server.
+    self._flush_queue = tornado.queues.Queue(maxsize=1024)
+    self._loop.spawn_callback(self._flusher_loop)
+
     # Send a PING expecting a PONG to make a roundtrip to the server
     # and assert that sent messages sent this far have been processed.
     # Reply from server should be handled by the parsing loop already
     # at this point.
+    yield self.io.write(PING_PROTO)
     yield self.flush()
 
   def _next_server(self):
@@ -720,6 +727,29 @@ class Client(object):
     """
     if not self.io.closed():
       self.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self._read_loop, streaming_callback=self._ps.parse, partial=True)
+
+  @tornado.gen.coroutine
+  def _flusher_loop(self):
+    """
+    Coroutine which continuously tries to consume pending commands
+    and then flushes them to the socket.
+    """
+    while True:
+      if self.io.closed():
+        break
+      try:
+        yield self._flush_queue.get()
+        yield self.io.write(b''.join(self._pending))
+        self._pending = []
+        self._pending_size = 0
+      except tornado.iostream.StreamBufferFullError:
+        # Acumulate as pending data size and flush when possible.
+        pass
+      except tornado.iostream.StreamClosedError as e:
+        self._err = e
+        if self._error_cb is not None and not self.is_reconnecting:
+          self._error_cb(e)
+        yield self._unbind()
 
 class Subscription():
 
