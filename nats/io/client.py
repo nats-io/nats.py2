@@ -285,12 +285,13 @@ class Client(object):
     if len(self._pending) > DEFAULT_PENDING_SIZE:
       yield self._flush_pending()
 
+  @tornado.gen.coroutine
   def _publish(self, subject, reply, payload, payload_size):
     payload_size_bytes = ("%d" % payload_size).encode()
     pub_cmd = b''.join([PUB_OP, _SPC_, subject.encode(), _SPC_, reply, _SPC_, payload_size_bytes, _CRLF_, payload, _CRLF_])
     self.stats['out_msgs']  += 1
     self.stats['out_bytes'] += payload_size
-    self.send_command(pub_cmd)
+    yield self.send_command(pub_cmd)
 
   @tornado.gen.coroutine
   def _flush_pending(self):
@@ -313,7 +314,7 @@ class Client(object):
       raise ErrMaxPayload
     if self.is_closed:
       raise ErrConnectionClosed
-    self._publish(subject, _EMPTY_, payload, payload_size)
+    yield self._publish(subject, _EMPTY_, payload, payload_size)
     if self._flush_queue.empty():
       yield self._flush_pending()
 
@@ -333,7 +334,7 @@ class Client(object):
       raise ErrMaxPayload
     if self.is_closed:
       raise ErrConnectionClosed
-    self._publish(subject, reply, payload, payload_size)
+    yield self._publish(subject, reply, payload, payload_size)
 
   @tornado.gen.coroutine
   def flush(self, timeout=60):
@@ -420,7 +421,8 @@ class Client(object):
   def unsubscribe(self, ssid, max_msgs=0):
     """
     Takes a subscription sequence id and removes the subscription
-    from the client, optionally after receiving more than max_msgs.
+    from the client, optionally after receiving more than max_msgs,
+    and unsubscribes immediatedly.
     """
     if self.is_closed:
       raise ErrConnectionClosed
@@ -449,7 +451,7 @@ class Client(object):
     Generates a SUB command given a Subscription and the subject sequence id.
     """
     sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(), _SPC_, sub.queue.encode(), _SPC_, ("%d" % ssid).encode(), _CRLF_])
-    self.send_command(sub_cmd)
+    yield self.send_command(sub_cmd)
     yield self._flush_pending()
 
   @tornado.gen.coroutine
@@ -464,24 +466,17 @@ class Client(object):
       b_limit = ("%d" % limit).encode()
     b_sid = ("%d" % sid).encode()
     unsub_cmd = b''.join([UNSUB_OP, _SPC_, b_sid, _SPC_, b_limit, _CRLF_])
-    self.send_command(unsub_cmd)
+    yield self.send_command(unsub_cmd)
     yield self._flush_pending()
 
   @tornado.gen.coroutine
-  def unsubscribe(self, sid):
-    """
-    Sends an UNSUB command to the server and unsubscribes immediatedly.
-    """
-    unsub_cmd = UNSUB_PROTO.format(UNSUB_OP, sid, _EMPTY_, _CRLF_)
-    self.send_command(unsub_cmd)
-
   def _process_ping(self):
     """
     The server will be periodically sending a PING, and if the the client
     does not reply a PONG back a number of times, it will close the connection
     sending an `-ERR 'Stale Connection'` error.
     """
-    self.send_command(PONG_PROTO)
+    yield self.send_command(PONG_PROTO)
 
   @tornado.gen.coroutine
   def _process_pong(self):
@@ -511,7 +506,7 @@ class Client(object):
     sub = self._subs[sid]
     sub.received += 1
     if sub.cb is not None:
-      sub.cb(msg)
+      self._loop.spawn_callback(sub.cb, msg)
     elif sub.future is not None:
       sub.future.set_result(msg)
 
@@ -628,7 +623,7 @@ class Client(object):
           break
         except Exception as e:
           self._err = e
-          self._close(Client.DISCONNECTED, False)
+          yield self._close(Client.DISCONNECTED)
 
       # Replay all the subscriptions in case there were some.
       for ssid, sub in self._subs.items():
@@ -693,6 +688,7 @@ class Client(object):
         self._status = Client.RECONNECTING
         continue
 
+  @tornado.gen.coroutine
   def _process_disconnect(self):
     """
     Does cleanup of the client state and tears down the connection.
@@ -732,6 +728,7 @@ class Client(object):
       if self._close_cb is not None:
         self._close_cb()
 
+  @tornado.gen.coroutine
   def _process_err(self, err=None):
     """
     Stores the last received error from the server and dispatches the error callback.
@@ -753,6 +750,7 @@ class Client(object):
   def last_error(self):
     return self._err
 
+  @tornado.gen.coroutine
   def _read_loop(self, data=''):
     """
     Read loop for gathering bytes from the server in a buffer
@@ -760,11 +758,7 @@ class Client(object):
     to the parsing callback for processing.
     """
     if not self.io.closed():
-      self.io.read_bytes(
-        MAX_CONTROL_LINE_SIZE,
-        callback=self._read_loop,
-        streaming_callback=self._ps.parse,
-        partial=True)
+      self.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self._read_loop, streaming_callback=self._ps.parse, partial=True)
 
   @tornado.gen.coroutine
   def _flusher_loop(self):

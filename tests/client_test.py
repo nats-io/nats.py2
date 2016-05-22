@@ -215,27 +215,26 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertIn("max_payload", info_keys)
 
      @tornado.testing.gen_test(timeout=5)
-     def test_connect_error_callback(self):
+     def test_connect_fails(self):
 
           class SampleClient():
                def __init__(self):
                     self.nc = Client()
-                    self.err = ""
+                    self.disconnected_cb_called = False
 
-               def err_cb(self, e):
-                    self.err += str(e)
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
 
           client = SampleClient()
-          with self.assertRaises(ErrNoServers):
+          with self.assertRaises(NatsError):
                options = {
                     "servers": ["nats://127.0.0.1:4223"],
-                    "error_cb": client.err_cb,
+                    "close_cb": client.disconnected_cb,
                     "allow_reconnect": False,
                     "io_loop": self.io_loop
                     }
                yield client.nc.connect(**options)
-
-          self.assertEqual(socket.error, type(client.nc.last_error()))
+          self.assertFalse(client.disconnected_cb_called)
 
      @tornado.testing.gen_test
      def test_subscribe(self):
@@ -258,6 +257,32 @@ class ClientTest(tornado.testing.AsyncTestCase):
           result = json.loads(response.body)
           connz = result['connections'][0]
           self.assertEqual(2, connz['subscriptions'])
+
+     @tornado.testing.gen_test
+     def test_subscribe_async(self):
+          nc = Client()
+          msgs = []
+
+          @tornado.gen.coroutine
+          def subscription_handler(msg):
+               if msg.subject == "tests.1":
+                    yield tornado.gen.sleep(0.5)
+               if msg.subject == "tests.3":
+                    yield tornado.gen.sleep(0.2)
+               msgs.append(msg)
+
+          yield nc.connect(io_loop=self.io_loop)
+          sid = yield nc.subscribe("tests.>", cb=subscription_handler)
+
+          for i in range(0, 5):
+               yield nc.publish("tests.{}".format(i), b'bar')
+
+          # Wait a bit for messages to be received.
+          yield tornado.gen.sleep(4.0)
+          self.assertEqual(5, len(msgs))
+          self.assertEqual("tests.1", msgs[4].subject)
+          self.assertEqual("tests.3", msgs[3].subject)
+          yield nc.close()
 
      @tornado.testing.gen_test
      def test_publish(self):
