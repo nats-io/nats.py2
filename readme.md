@@ -4,7 +4,7 @@ A Python async client for the [NATS messaging system](https://nats.io).
 
 [![License MIT](https://img.shields.io/npm/l/express.svg)](http://opensource.org/licenses/MIT)
 [![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
-[![GitHub release](https://img.shields.io/badge/release-v0.2.2-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.2.2)
+[![GitHub release](https://img.shields.io/badge/release-v0.3.0-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.3.0)
 
 ## Supported platforms
 
@@ -233,6 +233,21 @@ def main():
 
     yield nc.subscribe("discover", "", subscriber)
 
+    @tornado.gen.coroutine
+    def async_subscriber(msg):
+        # First request takes longer, while others are still processed.
+        if msg.subject == "requests.1":
+            yield tornado.gen.sleep(0.5)
+        print("Processed request [{0}]: {1}".format(msg.subject, msg))
+
+    # Create asynchronous subscription and make roundtrip to server
+    # to ensure that subscriptions have been processed.
+    yield nc.subscribe_async("requests.*", cb=async_subscriber)
+    yield nc.flush()
+    for i in range(1, 10):
+        yield nc.publish("requests.{0}".format(i), "example")
+    yield tornado.gen.sleep(1)
+
     while True:
         # Confirm stats to implement basic throttling logic.
         sent = nc.stats["out_msgs"]
@@ -273,7 +288,7 @@ for subscribing and publishing messages to NATS:
 
 (The MIT License)
 
-Copyright (c) 2015 Apcera Inc.<br/>
+Copyright (c) 2015-2016 Apcera Inc.<br/>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to

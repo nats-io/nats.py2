@@ -73,7 +73,7 @@ def main():
     start = time.time()
     to_send = args.count
 
-    print("Waiting for {} messages on [{}]...".format(args.count, args.subject))
+    print("Waiting for {0} messages on [{1}]...".format(args.count, args.subject))
     while received < args.count:
         # Minimal pause in between batches sent to server
         yield tornado.gen.sleep(0.1)
