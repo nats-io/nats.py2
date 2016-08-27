@@ -19,5 +19,7 @@
 - [X] closed state
 - [X] Travis builds
 - [X] Release on PyPI
+- [ ] error, closed, reconnect callbacks
 - [ ] confirm performance issues handling on larger messages
+- [ ] support async protocol
 - [ ] TLS

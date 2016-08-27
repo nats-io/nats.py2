@@ -4,6 +4,7 @@ import socket
 import json
 import time
 import io
+import ssl
 import tornado.iostream
 import tornado.concurrent
 import tornado.escape
@@ -134,6 +135,7 @@ class Client(object):
               read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
               tcp_nodelay=False,
               connect_timeout=DEFAULT_CONNECT_TIMEOUT,
+              tls=None
               ):
     """
     Establishes a connection to a NATS server.
@@ -160,6 +162,9 @@ class Client(object):
     # In seconds
     self.options["connect_timeout"] = connect_timeout
     self.options["ping_interval"] = ping_interval
+
+    # TLS customizations
+    self.options["tls"] = tls
 
     self._close_cb = close_cb
     self._error_cb = error_cb
@@ -550,6 +555,35 @@ class Client(object):
     _, args = line.split(INFO_OP + _SPC_, 1)
     self._server_info = tornado.escape.json_decode((args))
     self._max_payload_size = self._server_info["max_payload"]
+
+    # Check whether we need to upgrade to TLS first of all
+    if self._server_info['tls_required']:
+      # Detach and prepare for upgrading the TLS connection.
+      self._loop.remove_handler(self._socket.fileno())
+
+      tls_opts = {}
+      tls_version = None
+      if "tls" in self.options:
+        # Allow customizing the TLS version though default
+        # to one that the server supports at least.
+        tls_opts = self.options["tls"]
+        if "ssl_version" in tls_opts:
+          tls_version = tls_opts["ssl_version"]
+        else:
+          tls_version = ssl.PROTOCOL_TLSv1_2
+
+      # Rewrap using a TLS connection, can't do handshake on connect
+      # as the socket is non blocking.
+      self._socket = ssl.wrap_socket(
+        self._socket,
+        do_handshake_on_connect=False,
+        **tls_opts)
+
+      # Use the TLS stream instead from now
+      self.io = tornado.iostream.SSLIOStream(self._socket, io_loop=self._loop)
+
+      self.io.set_close_callback(self._unbind)
+      self.io._do_ssl_handshake()
 
     # CONNECT {...}
     cmd = self.connect_command()
