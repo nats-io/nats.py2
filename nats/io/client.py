@@ -841,13 +841,19 @@ class Client(object):
     and then flushes them to the socket.
     """
     while True:
-      if self.io.closed():
-        break
       try:
+        # Block and wait for the flusher to be kicked
         yield self._flush_queue.get()
-        yield self.io.write(b''.join(self._pending))
-        self._pending = []
-        self._pending_size = 0
+
+        # Check whether we should bail first
+        if not self.is_connected or self.is_connecting or self.io.closed():
+          break
+
+        # Flush only when we actually have something in buffer...
+        if self._pending_size > 0:
+          yield self.io.write(b''.join(self._pending))
+          self._pending = []
+          self._pending_size = 0
       except tornado.iostream.StreamBufferFullError:
         # Acumulate as pending data size and flush when possible.
         pass
