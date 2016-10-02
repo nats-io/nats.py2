@@ -11,7 +11,6 @@
 - [X] readings deadline, flush timeout
 - [X] more thorough test split buffer scenarios
 - [X] benchmarks
-- [X] error, close, disconnected callbacks,
 - [X] pending data buffering on reconnect
 - [X] client connection stats
 - [X] integration tests with server
@@ -19,7 +18,7 @@
 - [X] closed state
 - [X] Travis builds
 - [X] Release on PyPI
-- [ ] error, closed, reconnect callbacks
+- [X] error, close, disconnected callbacks
+- [X] TLS
 - [ ] confirm performance issues handling on larger messages
 - [ ] support async protocol
-- [ ] TLS
