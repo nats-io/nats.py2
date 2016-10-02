@@ -164,7 +164,8 @@ class Client(object):
     self.options["ping_interval"] = ping_interval
 
     # TLS customizations
-    self.options["tls"] = tls
+    if tls is not None:
+      self.options["tls"] = tls
 
     self._close_cb = close_cb
     self._error_cb = error_cb
@@ -235,6 +236,7 @@ class Client(object):
       max_write_buffer_size=self._max_write_buffer_size,
       read_chunk_size=self._read_chunk_size)
 
+    # Connect to server with a deadline
     future = self.io.connect((s.uri.hostname, s.uri.port))
     yield tornado.gen.with_timeout(
       timedelta(seconds=self.options["connect_timeout"]),
