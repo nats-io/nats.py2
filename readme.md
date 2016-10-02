@@ -268,6 +268,26 @@ if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
 ```
 
+### TLS
+
+Advanced [customizations options](https://docs.python.org/2/library/ssl.html#ssl.SSLContext.wrap_socket) for setting up a secure connection can be done by including them on connect:
+
+```python
+    # Establish secure connection to the server, tls options parameterize
+    # the wrap_socket available from ssl python package.
+    options = {
+        "verbose": True,
+        "servers": ["nats://127.0.0.1:4444"],
+        "tls": {
+            "cert_reqs": ssl.CERT_REQUIRED,
+            "ca_certs": "./configs/certs/ca.pem",
+            "keyfile":  "./configs/certs/client-key.pem",
+            "certfile": "./configs/certs/client-cert.pem"
+          }
+        }
+    yield nc.connect(**options)
+```
+
 ## Examples
 
 In this repo there are also included a couple of simple utilities

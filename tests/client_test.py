@@ -13,9 +13,11 @@ import tornado.ioloop
 import tornado.iostream
 import subprocess
 import threading
+import tempfile
 import time
 import json
 import socket
+import ssl
 import os
 
 from datetime import timedelta
@@ -34,7 +36,9 @@ class Gnatsd(object):
                   password="",
                   timeout=0,
                   http_port=8222,
-                  debug=False
+                  config_file=None,
+                  debug=False,
+                  conf=None,
                ):
           self.port = port
           self.user = user
@@ -43,13 +47,51 @@ class Gnatsd(object):
           self.http_port = http_port
           self.proc = None
           self.debug = debug
+          self.config_file = config_file
+          self.conf = conf
+          self.thread = None
 
           env_debug_flag = os.environ.get("DEBUG_NATS_TEST")
           if env_debug_flag == "true":
                self.debug = True
 
+     def __enter__(self):
+          """For when NATS client is used in a context manager"""
+          config_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
+          self.config_file = config_file
+          self.config_file.write(self.conf)
+          self.config_file.flush()
+
+          t = threading.Thread(target=self.start)
+          self.thread = t
+          self.thread.start()
+
+          http = tornado.httpclient.HTTPClient()
+          while True:
+               try:
+                    response = http.fetch('http://127.0.0.1:%d/varz' % self.http_port)
+                    if response.code == 200:
+                         break
+                    continue
+               except:
+                    time.sleep(0.1)
+                    continue
+          return self
+
+     def __exit__(self, *exc_info):
+          """Close connection to NATS when used in a context manager"""
+          self.finish()
+          self.thread.join()
+
      def start(self):
-          cmd = ["gnatsd", "-p", "%d" % self.port, "-m", "%d" % self.http_port]
+          cmd = ["gnatsd"]
+          cmd.append("-p")
+          cmd.append("%d" % self.port)
+          cmd.append("-m")
+          cmd.append("%d" % self.http_port)
+          if self.config_file is not None:
+               cmd.append("-c")
+               cmd.append(self.config_file.name)
 
           if self.user != "":
                cmd.append("--user")
@@ -878,7 +920,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           sid_3 = yield component.nc.subscribe("quux", "", log.persist)
           self.assertEqual(sid_3, 3)
           yield nc.publish("foo", "hello")
-          yield tornado.gen.sleep(1)
+          yield tornado.gen.sleep(2)
           self.assertEqual("hello", log.records['foo'][0].data)
           yield tornado.gen.sleep(1.0)
 
@@ -899,20 +941,25 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           self.assertEqual(2, connz['in_msgs'])
           self.assertEqual(10, connz['in_bytes'])
 
+          # Shutdown first server, triggering reconnect...
           orig_gnatsd = self.server_pool.pop(0)
           orig_gnatsd.finish()
 
           # Wait for reconnect logic kick in and fail due to authorization error.
-          yield tornado.gen.sleep(5)
+          yield tornado.gen.sleep(1)
           self.assertFalse(component.nc.is_connected)
           self.assertTrue(component.nc.is_reconnecting)
+          self.assertTrue(component.disconnected_cb_called)
 
           # No guarantee in getting the error before the connection is closed,
           # by the server though the behavior should be as below.
           # self.assertEqual(1, component.nc.stats['errors_received'])
           # self.assertEqual(ErrAuthorization, component.nc.last_error())
           # self.assertTrue(component.error_cb_called)
-          self.assertTrue(component.disconnected_cb_called)
+
+          # Connection is closed at this point after reconnect failed.
+          yield tornado.gen.sleep(2)
+          self.assertTrue(component.nc.is_closed)
           self.assertTrue(component.reconnected_cb_called)
 
      @tornado.testing.gen_test(timeout=15)
@@ -949,7 +996,6 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                          yield tornado.gen.sleep(0.0001)
 
           c = Component(nc)
-
           options = {
                "dont_randomize": True,
                "servers": [
@@ -968,14 +1014,13 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           yield c.nc.subscribe("foo",  "", log.persist)
           self.io_loop.spawn_callback(c.publisher)
 
-          yield tornado.gen.sleep(0.5)
           orig_gnatsd = self.server_pool.pop(0)
           orig_gnatsd.finish()
 
           try:
                a = nc._current_server
                # Wait for reconnect logic kick in...
-               yield tornado.gen.sleep(5)
+               yield tornado.gen.sleep(3)
           finally:
                b = nc._current_server
                self.assertNotEqual(a.uri, b.uri)
@@ -1073,6 +1118,330 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
           with(self.assertRaises(ErrConnectionClosed)):
                yield nc.timed_request("hello", "world")
+
+class ClientTLSTest(tornado.testing.AsyncTestCase):
+
+     def setUp(self):
+          print("\n=== RUN {0}.{1}".format(self.__class__.__name__, self._testMethodName))
+          self.threads = []
+          self.server_pool = []
+
+          conf = """
+          # Simple TLS config file
+          port: 4444
+          net: 127.0.0.1
+
+          http_port: 8222
+
+          """
+          config_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
+          config_file.write(conf)
+          config_file.flush()
+
+          server = Gnatsd(port=4444, http_port=8222, config_file=config_file)
+          self.server_pool.append(server)
+          server = Gnatsd(port=4445, http_port=8223, config_file=config_file)
+          self.server_pool.append(server)
+
+          for gnatsd in self.server_pool:
+               t = threading.Thread(target=gnatsd.start)
+               self.threads.append(t)
+               t.start()
+
+               http = tornado.httpclient.HTTPClient()
+               while True:
+                    try:
+                         response = http.fetch('http://127.0.0.1:%d/varz' % gnatsd.http_port)
+                         if response.code == 200:
+                              break
+                         continue
+                    except:
+                         time.sleep(0.1)
+                         continue
+          super(ClientTLSTest, self).setUp()
+
+     def tearDown(self):
+          for gnatsd in self.server_pool:
+               gnatsd.finish()
+
+          for t in self.threads:
+               t.join()
+
+          super(ClientTLSTest, self).tearDown()
+
+     @tornado.testing.gen_test(timeout=10)
+     def test_tls_connection(self):
+
+          class Component:
+               def __init__(self, nc):
+                    self.nc = nc
+                    self.error = None
+                    self.error_cb_called = False
+                    self.close_cb_called = False
+                    self.disconnected_cb_called = False
+                    self.reconnected_cb_called = False
+                    self.msgs = []
+
+               @tornado.gen.coroutine
+               def subscription_handler(self, msg):
+                    yield self.nc.publish(msg.reply, 'hi')
+
+               def error_cb(self, err):
+                    self.error = err
+                    self.error_cb_called = True
+
+               def close_cb(self):
+                    self.close_cb_called = True
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
+
+               def reconnected_cb(self):
+                    self.reconnected_cb_called = True
+
+          nc = Client()
+          c = Component(nc)
+          options = {
+               "servers": [
+                    "nats://127.0.0.1:4444"
+               ],
+               "io_loop": self.io_loop,
+               "close_cb": c.close_cb,
+               "error_cb": c.error_cb,
+               "disconnected_cb": c.disconnected_cb,
+               "reconnected_cb": c.reconnected_cb
+          }
+
+          yield c.nc.connect(**options)
+          yield c.nc.subscribe("hello", cb=c.subscription_handler)
+          yield c.nc.flush()
+          for i in range(0, 10):
+               msg = yield c.nc.timed_request("hello", b'world')
+               c.msgs.append(msg)
+          self.assertEqual(len(c.msgs), 10)
+          self.assertFalse(c.disconnected_cb_called)
+          self.assertFalse(c.close_cb_called)
+          self.assertFalse(c.error_cb_called)
+          self.assertFalse(c.reconnected_cb_called)
+
+          # Should be able to close normally
+          yield c.nc.close()
+          self.assertTrue(c.disconnected_cb_called)
+          self.assertTrue(c.close_cb_called)
+          self.assertFalse(c.error_cb_called)
+          self.assertFalse(c.reconnected_cb_called)
+
+     @tornado.testing.gen_test(timeout=10)
+     def test_tls_reconnection(self):
+
+          class Component:
+               def __init__(self, nc):
+                    self.nc = nc
+                    self.error = None
+                    self.error_cb_called = False
+                    self.close_cb_called = False
+                    self.disconnected_cb_called = False
+                    self.reconnected_cb_called = False
+                    self.msgs = []
+
+               @tornado.gen.coroutine
+               def subscription_handler(self, msg):
+                    yield self.nc.publish(msg.reply, 'hi')
+
+               def error_cb(self, err):
+                    self.error = err
+                    self.error_cb_called = True
+
+               def close_cb(self):
+                    self.close_cb_called = True
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
+
+               def reconnected_cb(self):
+                    self.reconnected_cb_called = True
+
+          nc = Client()
+          c = Component(nc)
+          options = {
+               "dont_randomize": True,
+               "servers": [
+                    "nats://127.0.0.1:4444",
+                    "nats://127.0.0.1:4445",
+               ],
+               "io_loop": self.io_loop,
+               "close_cb": c.close_cb,
+               "error_cb": c.error_cb,
+               "disconnected_cb": c.disconnected_cb,
+               "reconnected_cb": c.reconnected_cb
+          }
+
+          yield c.nc.connect(**options)
+          yield c.nc.subscribe("hello", cb=c.subscription_handler)
+          yield c.nc.flush()
+          for i in range(0, 5):
+               msg = yield c.nc.timed_request("hello", b'world')
+               c.msgs.append(msg)
+          self.assertEqual(len(c.msgs), 5)
+
+          # Trigger disconnect...
+          orig_gnatsd = self.server_pool.pop(0)
+          orig_gnatsd.finish()
+          try:
+               a = nc._current_server
+               # Wait for reconnect logic kick in...
+               yield tornado.gen.sleep(5)
+          finally:
+               b = nc._current_server
+               self.assertNotEqual(a.uri, b.uri)
+
+          self.assertTrue(c.disconnected_cb_called)
+          self.assertFalse(c.close_cb_called)
+          self.assertFalse(c.error_cb_called)
+          self.assertTrue(c.reconnected_cb_called)
+
+          for i in range(0, 5):
+               msg = yield c.nc.timed_request("hello", b'world')
+               c.msgs.append(msg)
+          self.assertEqual(len(c.msgs), 10)
+
+          # Should be able to close normally
+          yield c.nc.close()
+          self.assertTrue(c.disconnected_cb_called)
+          self.assertTrue(c.close_cb_called)
+          self.assertFalse(c.error_cb_called)
+          self.assertTrue(c.reconnected_cb_called)
+
+class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
+
+     def setUp(self):
+          print("\n=== RUN {0}.{1}".format(self.__class__.__name__, self._testMethodName))
+          super(ClientTLSCertsTest, self).setUp()
+
+     class Component:
+          def __init__(self, nc):
+               self.nc = nc
+               self.error = None
+               self.error_cb_called = False
+               self.close_cb_called = False
+               self.disconnected_cb_called = False
+               self.reconnected_cb_called = False
+               self.msgs = []
+
+          @tornado.gen.coroutine
+          def subscription_handler(self, msg):
+               yield self.nc.publish(msg.reply, 'hi')
+
+          def error_cb(self, err):
+               self.error = err
+               self.error_cb_called = True
+
+          def close_cb(self):
+               self.close_cb_called = True
+
+          def disconnected_cb(self):
+               self.disconnected_cb_called = True
+
+          def reconnected_cb(self):
+               self.reconnected_cb_called = True
+
+     @tornado.testing.gen_test(timeout=10)
+     def test_tls_verify(self):
+          nc = Client()
+          c = self.Component(nc)
+          options = {
+               "servers": [
+                    "nats://127.0.0.1:4446"
+               ],
+               "allow_reconnect": False,
+               "io_loop": self.io_loop,
+               "close_cb": c.close_cb,
+               "error_cb": c.error_cb,
+               "disconnected_cb": c.disconnected_cb,
+               "reconnected_cb": c.reconnected_cb,
+               "tls": {
+                    "cert_reqs": ssl.CERT_REQUIRED,
+                    "ca_certs": "./tests/configs/certs/ca.pem",
+                    "keyfile":  "./tests/configs/certs/client-key.pem",
+                    "certfile": "./tests/configs/certs/client-cert.pem"
+               }
+          }
+
+          conf = """
+          port: 4446
+          net: 127.0.0.1
+
+          http_port: 8446
+          tls {
+            cert_file: './tests/configs/certs/server-cert.pem'
+            key_file:  './tests/configs/certs/server-key.pem'
+            ca_file:   './tests/configs/certs/ca.pem'
+            timeout:   10
+            verify: true
+          }
+          """
+
+          with Gnatsd(port=4446, http_port=8446, conf=conf) as gnatsd:
+               yield c.nc.connect(**options)
+               yield c.nc.subscribe("hello", cb=c.subscription_handler)
+               yield c.nc.flush()
+               for i in range(0, 10):
+                    msg = yield c.nc.timed_request("hello", b'world')
+                    c.msgs.append(msg)
+               self.assertEqual(len(c.msgs), 10)
+               self.assertFalse(c.disconnected_cb_called)
+               self.assertFalse(c.close_cb_called)
+               self.assertFalse(c.error_cb_called)
+               self.assertFalse(c.reconnected_cb_called)
+
+               # Should be able to close normally
+               yield c.nc.close()
+               self.assertTrue(c.disconnected_cb_called)
+               self.assertTrue(c.close_cb_called)
+               self.assertFalse(c.error_cb_called)
+               self.assertFalse(c.reconnected_cb_called)
+
+     @tornado.testing.gen_test(timeout=10)
+     def test_tls_verify_fails(self):
+          nc = Client()
+          c = self.Component(nc)
+          port = 4447
+          http_port = 8447
+          options = {
+               "servers": [
+                    "nats://127.0.0.1:%d" % port
+               ],
+               "max_reconnect_attempts": 5,
+               "io_loop": self.io_loop,
+               "close_cb": c.close_cb,
+               "error_cb": c.error_cb,
+               "disconnected_cb": c.disconnected_cb,
+               "reconnected_cb": c.reconnected_cb,
+               "tls": {
+                    "cert_reqs": ssl.CERT_REQUIRED,
+                    # "ca_certs": "./tests/configs/certs/ca.pem",
+                    "keyfile":  "./tests/configs/certs/client-key.pem",
+                    "certfile": "./tests/configs/certs/client-cert.pem"
+               }
+          }
+
+          conf = """
+          port: %d
+          net: 127.0.0.1
+
+          http_port: %d
+          tls {
+            cert_file: './tests/configs/certs/server-cert.pem'
+            key_file:  './tests/configs/certs/server-key.pem'
+            ca_file:   './tests/configs/certs/ca.pem'
+            timeout:   10
+            verify: true
+          }
+          """ % (port, http_port)
+
+          with Gnatsd(port=port, http_port=http_port, conf=conf) as gnatsd:
+               with self.assertRaises(NatsError):
+                    yield c.nc.connect(**options)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)

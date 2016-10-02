@@ -4,6 +4,7 @@ import socket
 import json
 import time
 import io
+import ssl
 import tornado.iostream
 import tornado.concurrent
 import tornado.escape
@@ -134,6 +135,8 @@ class Client(object):
               read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
               tcp_nodelay=False,
               connect_timeout=DEFAULT_CONNECT_TIMEOUT,
+              max_reconnect_attempts=MAX_RECONNECT_ATTEMPTS,
+              tls=None
               ):
     """
     Establishes a connection to a NATS server.
@@ -153,6 +156,7 @@ class Client(object):
     self.options["pedantic"] = pedantic
     self.options["name"] = name
     self.options["max_outstanding_pings"] = max_outstanding_pings
+    self.options["max_reconnect_attempts"] = max_reconnect_attempts
     self.options["dont_randomize"] = dont_randomize
     self.options["allow_reconnect"] = allow_reconnect
     self.options["tcp_nodelay"] = tcp_nodelay
@@ -160,6 +164,10 @@ class Client(object):
     # In seconds
     self.options["connect_timeout"] = connect_timeout
     self.options["ping_interval"] = ping_interval
+
+    # TLS customizations
+    if tls is not None:
+      self.options["tls"] = tls
 
     self._close_cb = close_cb
     self._error_cb = error_cb
@@ -177,24 +185,31 @@ class Client(object):
       for srv in self.options["servers"]:
         self._server_pool.append(Srv(urlparse(srv)))
 
-    s = self._next_server()
-    if s is None:
-      raise ErrNoServers
+    while True:
+      try:
+        s = self._next_server()
+        if s is None:
+          raise ErrNoServers
 
-    try:
-      yield self._server_connect(s)
-      self._current_server = s
-      self.io.set_close_callback(self._unbind)
-    except socket.error as e:
-      self._err = e
-      if self._error_cb is not None:
-        self._error_cb(ErrServerConnect(e))
-      if not self.options["allow_reconnect"]:
-        raise ErrNoServers
-      yield self._schedule_primary_and_connect()
+        yield self._server_connect(s)
+        self._current_server = s
+        s.did_connect = True
 
-    self._status = Client.CONNECTING
-    yield self._process_connect_init()
+        # Established TCP connection at least and about
+        # to send connect command, which might not succeed
+        # in case TLS required and handshake failed.
+        self._status = Client.CONNECTING
+        yield self._process_connect_init()
+        self.io.set_close_callback(self._unbind)
+        break
+      except (socket.error, tornado.iostream.StreamClosedError) as e:
+        self._status = Client.DISCONNECTED
+        self._err = e
+        if self._error_cb is not None:
+          self._error_cb(ErrServerConnect(e))
+        if not self.options["allow_reconnect"]:
+          raise ErrNoServers
+        self._current_server.reconnects += 1
 
     # Flush pending data before continuing in connected status.
     # FIXME: Could use future here and wait for an error result
@@ -230,6 +245,7 @@ class Client(object):
       max_write_buffer_size=self._max_write_buffer_size,
       read_chunk_size=self._read_chunk_size)
 
+    # Connect to server with a deadline
     future = self.io.connect((s.uri.hostname, s.uri.port))
     yield tornado.gen.with_timeout(
       timedelta(seconds=self.options["connect_timeout"]),
@@ -551,6 +567,35 @@ class Client(object):
     self._server_info = tornado.escape.json_decode((args))
     self._max_payload_size = self._server_info["max_payload"]
 
+    # Check whether we need to upgrade to TLS first of all
+    if self._server_info['tls_required']:
+      # Detach and prepare for upgrading the TLS connection.
+      self._loop.remove_handler(self._socket.fileno())
+
+      tls_opts = {}
+      tls_version = None
+      if "tls" in self.options:
+        # Allow customizing the TLS version though default
+        # to one that the server supports at least.
+        tls_opts = self.options["tls"]
+        if "ssl_version" in tls_opts:
+          tls_version = tls_opts["ssl_version"]
+        else:
+          tls_version = ssl.PROTOCOL_TLSv1_2
+
+      # Rewrap using a TLS connection, can't do handshake on connect
+      # as the socket is non blocking.
+      self._socket = ssl.wrap_socket(
+        self._socket,
+        do_handshake_on_connect=False,
+        **tls_opts)
+
+      # Use the TLS stream instead from now
+      self.io = tornado.iostream.SSLIOStream(self._socket, io_loop=self._loop)
+
+      self.io.set_close_callback(self._unbind)
+      self.io._do_ssl_handshake()
+
     # CONNECT {...}
     cmd = self.connect_command()
     yield self.io.write(cmd)
@@ -597,9 +642,10 @@ class Client(object):
 
     s = None
     for server in self._server_pool:
-      if server.reconnects > MAX_RECONNECT_ATTEMPTS:
+      if server.reconnects > self.options["max_reconnect_attempts"]:
         continue
-      s = server
+      else:
+        s = server
     return s
 
   @property
@@ -707,7 +753,7 @@ class Client(object):
           self._reconnected_cb()
 
         return
-      except socket.error as e:
+      except (socket.error, tornado.iostream.StreamClosedError) as e:
         if self._error_cb is not None:
           self._error_cb(ErrServerConnect(e))
 
@@ -850,3 +896,4 @@ class Srv(object):
     self.uri = uri
     self.reconnects = 0
     self.last_attempt = None
+    self.did_connect = False
