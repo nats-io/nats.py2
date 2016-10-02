@@ -1290,7 +1290,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
           try:
                a = nc._current_server
                # Wait for reconnect logic kick in...
-               yield tornado.gen.sleep(3)
+               yield tornado.gen.sleep(5)
           finally:
                b = nc._current_server
                self.assertNotEqual(a.uri, b.uri)
