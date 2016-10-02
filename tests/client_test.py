@@ -550,6 +550,9 @@ class ClientTest(tornado.testing.AsyncTestCase):
                full_msg += msg.data
           self.assertEqual('please', full_msg)
 
+          # There should not be lingering inboxes with requests by default
+          self.assertEqual(len(c.nc._subs), 2)
+
      @tornado.testing.gen_test
      def test_publish_max_payload(self):
           nc = Client()

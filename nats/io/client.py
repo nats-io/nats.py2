@@ -394,7 +394,7 @@ class Client(object):
     """
     inbox = new_inbox()
     future = tornado.concurrent.Future()
-    sid = yield self.subscribe(inbox, _EMPTY_, None, future)
+    sid = yield self.subscribe(subject=inbox, queue=_EMPTY_, cb=None, future=future, max_msgs=1)
     yield self.auto_unsubscribe(sid, 1)
     yield self.publish_request(subject, inbox, payload)
     msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
@@ -522,6 +522,11 @@ class Client(object):
     msg = Msg(subject=subject.decode(), reply=reply.decode(), data=data)
     sub = self._subs[sid]
     sub.received += 1
+
+    if sub.max_msgs > 0 and sub.received >= sub.max_msgs:
+      # Enough messages so can throwaway subscription now.
+      self._subs.pop(sid, None)
+
     if sub.cb is not None:
       if sub.is_async:
         self._loop.spawn_callback(sub.cb, msg)
