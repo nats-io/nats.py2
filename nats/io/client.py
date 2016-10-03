@@ -832,9 +832,15 @@ class Client(object):
     to the parsing callback for processing.
     """
     while True:
-      if not self.io.closed():
+      if not self.is_connected or self.is_connecting or self.io.closed():
+        break
+
+      try:
         yield self.io.read_bytes(DEFAULT_READ_CHUNK_SIZE, streaming_callback=self._ps.parse, partial=True)
-      else:
+      except tornado.iostream.StreamClosedError as e:
+        self._err = e
+        if self._error_cb is not None and not self.is_reconnecting:
+          self._error_cb(e)
         break
 
   @tornado.gen.coroutine
