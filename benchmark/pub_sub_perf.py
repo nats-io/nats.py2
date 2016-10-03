@@ -29,6 +29,15 @@ def show_usage_and_die():
 global received
 received = 0
 
+def close_cb():
+    print("Closed connection to NATS")
+
+def disconnected_cb():
+    print("Disconnected from NATS")
+
+def reconnected_cb():
+    print("Reconnected to NATS")
+
 @tornado.gen.coroutine
 def main():
     parser = argparse.ArgumentParser()
@@ -41,13 +50,19 @@ def main():
 
     data = []
     for i in range(0, args.size):
-        data.append(b"%01x" % randint(0, 16))
+        data.append("W")
     payload = b''.join(data)
 
     servers = args.servers
     if len(args.servers) < 1:
         servers = ["nats://127.0.0.1:4222"]
-    opts = { "servers": servers }
+    opts = {
+        "servers": servers,
+        "disconnected_cb": disconnected_cb,
+        "close_cb": close_cb,
+        "reconnected_cb": reconnected_cb,
+        "allow_reconnect": False,
+    }
 
     # Make sure we're connected to a server first...
     nc = NATS()

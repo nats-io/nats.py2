@@ -49,7 +49,7 @@ MAX_RECONNECT_ATTEMPTS    = 60
 RECONNECT_TIME_WAIT       = 2   # seconds
 DEFAULT_CONNECT_TIMEOUT   = 2   # seconds
 
-DEFAULT_READ_BUFFER_SIZE  = 1024 * 1024 * 100
+DEFAULT_READ_BUFFER_SIZE  = 1024 * 1024 * 10
 DEFAULT_WRITE_BUFFER_SIZE = None
 DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
 DEFAULT_PENDING_SIZE      = 1024 * 1024
@@ -831,8 +831,17 @@ class Client(object):
     of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
     to the parsing callback for processing.
     """
-    if not self.io.closed():
-      self.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self._read_loop, streaming_callback=self._ps.parse, partial=True)
+    while True:
+      if not self.is_connected or self.is_connecting or self.io.closed():
+        break
+
+      try:
+        yield self.io.read_bytes(DEFAULT_READ_CHUNK_SIZE, streaming_callback=self._ps.parse, partial=True)
+      except tornado.iostream.StreamClosedError as e:
+        self._err = e
+        if self._error_cb is not None and not self.is_reconnecting:
+          self._error_cb(e)
+        break
 
   @tornado.gen.coroutine
   def _flusher_loop(self):
@@ -841,13 +850,19 @@ class Client(object):
     and then flushes them to the socket.
     """
     while True:
-      if self.io.closed():
-        break
       try:
+        # Block and wait for the flusher to be kicked
         yield self._flush_queue.get()
-        yield self.io.write(b''.join(self._pending))
-        self._pending = []
-        self._pending_size = 0
+
+        # Check whether we should bail first
+        if not self.is_connected or self.is_connecting or self.io.closed():
+          break
+
+        # Flush only when we actually have something in buffer...
+        if self._pending_size > 0:
+          yield self.io.write(b''.join(self._pending))
+          self._pending = []
+          self._pending_size = 0
       except tornado.iostream.StreamBufferFullError:
         # Acumulate as pending data size and flush when possible.
         pass

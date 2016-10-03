@@ -1014,8 +1014,10 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           yield c.nc.subscribe("foo",  "", log.persist)
           self.io_loop.spawn_callback(c.publisher)
 
+          yield tornado.gen.sleep(0.001)
           orig_gnatsd = self.server_pool.pop(0)
           orig_gnatsd.finish()
+          yield tornado.gen.sleep(0.001)
 
           try:
                a = nc._current_server
@@ -1297,7 +1299,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
 
           self.assertTrue(c.disconnected_cb_called)
           self.assertFalse(c.close_cb_called)
-          self.assertFalse(c.error_cb_called)
+          self.assertTrue(c.error_cb_called)
           self.assertTrue(c.reconnected_cb_called)
 
           for i in range(0, 5):
@@ -1309,7 +1311,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
           yield c.nc.close()
           self.assertTrue(c.disconnected_cb_called)
           self.assertTrue(c.close_cb_called)
-          self.assertFalse(c.error_cb_called)
+          self.assertTrue(c.error_cb_called)
           self.assertTrue(c.reconnected_cb_called)
 
 class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
