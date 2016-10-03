@@ -831,8 +831,11 @@ class Client(object):
     of maximum MAX_CONTROL_LINE_SIZE, then received bytes are streamed
     to the parsing callback for processing.
     """
-    if not self.io.closed():
-      self.io.read_bytes(MAX_CONTROL_LINE_SIZE, callback=self._read_loop, streaming_callback=self._ps.parse, partial=True)
+    while True:
+      if not self.io.closed():
+        yield self.io.read_bytes(DEFAULT_READ_CHUNK_SIZE, streaming_callback=self._ps.parse, partial=True)
+      else:
+        break
 
   @tornado.gen.coroutine
   def _flusher_loop(self):
