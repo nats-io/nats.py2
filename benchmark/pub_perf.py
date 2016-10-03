@@ -39,7 +39,7 @@ def main():
 
     data = []
     for i in range(0, args.size):
-        data.append(b"%01x" % randint(0, 16))
+        data.append(b'W')
     payload = b''.join(data)
 
     servers = args.servers
