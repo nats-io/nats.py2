@@ -268,11 +268,33 @@ class ClientTest(tornado.testing.AsyncTestCase):
                     self.disconnected_cb_called = True
 
           client = SampleClient()
-          with self.assertRaises(NatsError):
+          with self.assertRaises(ErrNoServers):
                options = {
                     "servers": ["nats://127.0.0.1:4223"],
                     "close_cb": client.disconnected_cb,
                     "allow_reconnect": False,
+                    "io_loop": self.io_loop
+                    }
+               yield client.nc.connect(**options)
+          self.assertFalse(client.disconnected_cb_called)
+
+     @tornado.testing.gen_test(timeout=5)
+     def test_connect_fails_allow_reconnect(self):
+
+          class SampleClient():
+               def __init__(self):
+                    self.nc = Client()
+                    self.disconnected_cb_called = False
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
+
+          client = SampleClient()
+          with self.assertRaises(ErrNoServers):
+               options = {
+                    "servers": ["nats://127.0.0.1:4223"],
+                    "close_cb": client.disconnected_cb,
+                    "allow_reconnect": True,
                     "io_loop": self.io_loop
                     }
                yield client.nc.connect(**options)

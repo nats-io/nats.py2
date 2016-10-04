@@ -191,6 +191,8 @@ class Client(object):
         if s is None:
           raise ErrNoServers
 
+        # Mark that we have attempted to connect
+        s.reconnects += 1
         yield self._server_connect(s)
         self._current_server = s
         s.did_connect = True
@@ -209,7 +211,6 @@ class Client(object):
           self._error_cb(ErrServerConnect(e))
         if not self.options["allow_reconnect"]:
           raise ErrNoServers
-        self._current_server.reconnects += 1
 
     # Flush pending data before continuing in connected status.
     # FIXME: Could use future here and wait for an error result
