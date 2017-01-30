@@ -15,6 +15,8 @@ with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
 - 2.7.x
 - 2.6.x
 
+For python 3, check [asyncio-nats](https://github.com/nats-io/asyncio-nats)
+
 ## Getting Started
 
 ```bash
