@@ -2,7 +2,7 @@
 
 A Python async client for the [NATS messaging system](https://nats.io).
 
-[![License MIT](https://img.shields.io/npm/l/express.svg)](http://opensource.org/licenses/MIT)
+[![License MIT](https://img.shields.io/badge/License-MIT-blue.svg)](http://opensource.org/licenses/MIT)
 [![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
 [![GitHub release](https://img.shields.io/badge/release-v0.4.0-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.4.0)
 
