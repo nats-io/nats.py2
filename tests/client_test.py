@@ -300,6 +300,38 @@ class ClientTest(tornado.testing.AsyncTestCase):
                yield client.nc.connect(**options)
           self.assertFalse(client.disconnected_cb_called)
 
+     @tornado.testing.gen_test(timeout=5)
+     def test_connect_fails_allow_reconnect_forever_until_close(self):
+
+          class SampleClient():
+               def __init__(self):
+                    self.nc = Client()
+                    self.disconnected_cb_called = False
+                    self.closed_cb_called = False
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
+
+               def close_cb(self):
+                    self.closed_cb_called = True
+
+          client = SampleClient()
+          options = {
+               "servers": ["nats://127.0.0.1:4223"],
+               "close_cb": client.close_cb,
+               "disconnected_cb": client.disconnected_cb,
+               "allow_reconnect": True,
+               "io_loop": self.io_loop,
+               "max_reconnect_attempts": -1,
+               "reconnect_time_wait": 0.1
+               }
+          self.io_loop.spawn_callback(client.nc.connect, **options)
+          yield tornado.gen.sleep(2)
+          yield client.nc.close()
+          self.assertTrue(client.nc._server_pool[0].reconnects > 10)
+          self.assertTrue(client.disconnected_cb_called)
+          self.assertTrue(client.closed_cb_called)
+
      @tornado.testing.gen_test
      def test_subscribe(self):
           nc = Client()

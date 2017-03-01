@@ -136,6 +136,7 @@ class Client(object):
               tcp_nodelay=False,
               connect_timeout=DEFAULT_CONNECT_TIMEOUT,
               max_reconnect_attempts=MAX_RECONNECT_ATTEMPTS,
+              reconnect_time_wait=RECONNECT_TIME_WAIT,
               tls=None
               ):
     """
@@ -157,6 +158,7 @@ class Client(object):
     self.options["name"] = name
     self.options["max_outstanding_pings"] = max_outstanding_pings
     self.options["max_reconnect_attempts"] = max_reconnect_attempts
+    self.options["reconnect_time_wait"] = reconnect_time_wait
     self.options["dont_randomize"] = dont_randomize
     self.options["allow_reconnect"] = allow_reconnect
     self.options["tcp_nodelay"] = tcp_nodelay
@@ -191,8 +193,15 @@ class Client(object):
         if s is None:
           raise ErrNoServers
 
+        # Check when was the last attempt and back off before reconnecting
+        if s.last_attempt is not None:
+          now = time.time()
+          if (now - s.last_attempt) < self.options["reconnect_time_wait"]:
+            yield tornado.gen.sleep(self.options["reconnect_time_wait"])
+
         # Mark that we have attempted to connect
         s.reconnects += 1
+        s.last_attempt = time.time()
         yield self._server_connect(s)
         self._current_server = s
         s.did_connect = True
@@ -643,7 +652,7 @@ class Client(object):
 
     s = None
     for server in self._server_pool:
-      if server.reconnects > self.options["max_reconnect_attempts"]:
+      if self.options["max_reconnect_attempts"] > 0 and (server.reconnects > self.options["max_reconnect_attempts"]):
         continue
       else:
         s = server
@@ -683,7 +692,7 @@ class Client(object):
     if self.is_connected:
       self._status = Client.RECONNECTING
 
-      if self._ping_timer.is_running():
+      if self._ping_timer is not None and self._ping_timer.is_running():
         self._ping_timer.stop()
 
       while True:
@@ -734,15 +743,19 @@ class Client(object):
       s = self._next_server()
       if s is None:
         raise ErrNoServers
-      s.reconnects += 1
-      self.stats['reconnects'] += 1
 
       # For the reconnection logic, we need to consider
       # sleeping for a bit before trying to reconnect
       # too soon to a server which has failed previously.
-      yield tornado.gen.Task(
-        self._loop.add_timeout,
-        timedelta(seconds=RECONNECT_TIME_WAIT))
+      # Check when was the last attempt and back off before reconnecting
+      if s.last_attempt is not None:
+        now = time.time()
+        if (now - s.last_attempt) < self.options["reconnect_time_wait"]:
+          yield tornado.gen.sleep(self.options["reconnect_time_wait"])
+
+      s.reconnects += 1
+      s.last_attempt = time.time()
+      self.stats['reconnects'] += 1
       try:
         yield self._server_connect(s)
         self._current_server = s
@@ -791,7 +804,7 @@ class Client(object):
       return
 
     self._status = Client.CLOSED
-    if self._ping_timer.is_running():
+    if self._ping_timer is not None and self._ping_timer.is_running():
       self._ping_timer.stop()
 
     if not self.io.closed():
