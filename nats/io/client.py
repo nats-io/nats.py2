@@ -326,14 +326,7 @@ class Client(object):
       <<- MSG hello 2 5
 
     """
-    payload_size = len(payload)
-    if payload_size > self._max_payload_size:
-      raise ErrMaxPayload
-    if self.is_closed:
-      raise ErrConnectionClosed
-    yield self._publish(subject, _EMPTY_, payload, payload_size)
-    if self._flush_queue.empty():
-      yield self._flush_pending()
+    yield self.publish_request(subject, _EMPTY_, payload)
 
   @tornado.gen.coroutine
   def publish_request(self, subject, reply, payload):
@@ -352,6 +345,8 @@ class Client(object):
     if self.is_closed:
       raise ErrConnectionClosed
     yield self._publish(subject, reply, payload, payload_size)
+    if self._flush_queue.empty():
+      yield self._flush_pending()
 
   @tornado.gen.coroutine
   def flush(self, timeout=60):
