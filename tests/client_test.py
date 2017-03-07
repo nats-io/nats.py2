@@ -640,7 +640,6 @@ class ClientTest(tornado.testing.AsyncTestCase):
           inbox = new_inbox()
           yield nc.publish_request("help.1", inbox, "hello")
           yield nc.publish_request("help.2", inbox, "world")
-          yield nc.flush()
           yield tornado.gen.sleep(1.0)
 
           http = tornado.httpclient.AsyncHTTPClient()
