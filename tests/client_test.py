@@ -1484,6 +1484,7 @@ class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
                "error_cb": c.error_cb,
                "disconnected_cb": c.disconnected_cb,
                "reconnected_cb": c.reconnected_cb,
+               "reconnect_time_wait": 0.1,
                "tls": {
                     "cert_reqs": ssl.CERT_REQUIRED,
                     # "ca_certs": "./tests/configs/certs/ca.pem",
