@@ -938,12 +938,14 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.error = None
                     self.error_cb_called = False
+                    self.errors = []
                     self.close_cb_called = False
                     self.disconnected_cb_called = False
                     self.reconnected_cb_called = False
 
                def error_cb(self, err):
                     self.error = err
+                    self.errors.append(err)
                     self.error_cb_called = True
 
                def close_cb(self):
@@ -968,7 +970,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                "error_cb": component.error_cb,
                "disconnected_cb": component.disconnected_cb,
                "reconnected_cb": component.reconnected_cb,
-               "max_reconnect_attempts": 10,
+               "max_reconnect_attempts": 5,
                "reconnect_time_wait": 0.1
                }
           yield component.nc.connect(**options)
@@ -1009,7 +1011,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           orig_gnatsd.finish()
 
           # Wait for reconnect logic kick in and fail due to authorization error.
-          yield tornado.gen.sleep(1)
+          yield tornado.gen.sleep(0.5)
           self.assertFalse(component.nc.is_connected)
           self.assertTrue(component.nc.is_reconnecting)
           self.assertTrue(component.disconnected_cb_called)
@@ -1021,9 +1023,10 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           # self.assertTrue(component.error_cb_called)
 
           # Connection is closed at this point after reconnect failed.
-          yield tornado.gen.sleep(2)
-          self.assertTrue(component.nc.is_closed)
+          yield tornado.gen.sleep(1)
           self.assertTrue(component.reconnected_cb_called)
+          self.assertEqual(6, len(component.errors))
+          self.assertTrue(component.close_cb_called)
 
      @tornado.testing.gen_test(timeout=15)
      def test_auth_pending_bytes_handling(self):
