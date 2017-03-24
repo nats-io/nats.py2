@@ -583,15 +583,10 @@ class Client(object):
       self._loop.remove_handler(self._socket.fileno())
 
       tls_opts = {}
-      tls_version = None
       if "tls" in self.options:
         # Allow customizing the TLS version though default
         # to one that the server supports at least.
         tls_opts = self.options["tls"]
-        if "ssl_version" in tls_opts:
-          tls_version = tls_opts["ssl_version"]
-        else:
-          tls_version = ssl.PROTOCOL_TLSv1_2
 
       # Rewrap using a TLS connection, can't do handshake on connect
       # as the socket is non blocking.
