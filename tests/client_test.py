@@ -285,20 +285,59 @@ class ClientTest(tornado.testing.AsyncTestCase):
                def __init__(self):
                     self.nc = Client()
                     self.disconnected_cb_called = False
+                    self.closed_cb_called = False
 
                def disconnected_cb(self):
                     self.disconnected_cb_called = True
+
+               def closed_cb(self):
+                    self.closed_cb_called = True
 
           client = SampleClient()
           with self.assertRaises(ErrNoServers):
                options = {
                     "servers": ["nats://127.0.0.1:4223"],
-                    "close_cb": client.disconnected_cb,
+                    "disconnected_cb": client.disconnected_cb,
+                    "close_cb": client.closed_cb,
                     "allow_reconnect": True,
-                    "io_loop": self.io_loop
+                    "io_loop": self.io_loop,
+                    "max_reconnect_attempts": 2
                     }
                yield client.nc.connect(**options)
           self.assertFalse(client.disconnected_cb_called)
+          self.assertFalse(client.closed_cb_called)
+
+     @tornado.testing.gen_test(timeout=5)
+     def test_connect_fails_allow_reconnect_forever_until_close(self):
+
+          class SampleClient():
+               def __init__(self):
+                    self.nc = Client()
+                    self.disconnected_cb_called = False
+                    self.closed_cb_called = False
+
+               def disconnected_cb(self):
+                    self.disconnected_cb_called = True
+
+               def close_cb(self):
+                    self.closed_cb_called = True
+
+          client = SampleClient()
+          options = {
+               "servers": ["nats://127.0.0.1:4223"],
+               "close_cb": client.close_cb,
+               "disconnected_cb": client.disconnected_cb,
+               "allow_reconnect": True,
+               "io_loop": self.io_loop,
+               "max_reconnect_attempts": -1,
+               "reconnect_time_wait": 0.1
+               }
+          self.io_loop.spawn_callback(client.nc.connect, **options)
+          yield tornado.gen.sleep(2)
+          yield client.nc.close()
+          self.assertTrue(client.nc._server_pool[0].reconnects > 10)
+          self.assertTrue(client.disconnected_cb_called)
+          self.assertTrue(client.closed_cb_called)
 
      @tornado.testing.gen_test
      def test_subscribe(self):
@@ -898,12 +937,14 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                     self.nc = nc
                     self.error = None
                     self.error_cb_called = False
+                    self.errors = []
                     self.close_cb_called = False
                     self.disconnected_cb_called = False
                     self.reconnected_cb_called = False
 
                def error_cb(self, err):
                     self.error = err
+                    self.errors.append(err)
                     self.error_cb_called = True
 
                def close_cb(self):
@@ -927,7 +968,9 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                "close_cb": component.close_cb,
                "error_cb": component.error_cb,
                "disconnected_cb": component.disconnected_cb,
-               "reconnected_cb": component.reconnected_cb
+               "reconnected_cb": component.reconnected_cb,
+               "max_reconnect_attempts": 5,
+               "reconnect_time_wait": 0.1
                }
           yield component.nc.connect(**options)
           self.assertEqual(True, component.nc.is_connected)
@@ -967,7 +1010,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           orig_gnatsd.finish()
 
           # Wait for reconnect logic kick in and fail due to authorization error.
-          yield tornado.gen.sleep(1)
+          yield tornado.gen.sleep(0.5)
           self.assertFalse(component.nc.is_connected)
           self.assertTrue(component.nc.is_reconnecting)
           self.assertTrue(component.disconnected_cb_called)
@@ -979,9 +1022,10 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           # self.assertTrue(component.error_cb_called)
 
           # Connection is closed at this point after reconnect failed.
-          yield tornado.gen.sleep(2)
-          self.assertTrue(component.nc.is_closed)
+          yield tornado.gen.sleep(1)
           self.assertTrue(component.reconnected_cb_called)
+          self.assertEqual(6, len(component.errors))
+          self.assertTrue(component.close_cb_called)
 
      @tornado.testing.gen_test(timeout=15)
      def test_auth_pending_bytes_handling(self):
@@ -1027,6 +1071,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
                "reconnected_cb": c.reconnected_cb,
                "disconnected_cb": c.disconnected_cb,
                "error_cb": c.error_cb,
+               "reconnect_time_wait": 0.1
                }
           yield c.nc.connect(**options)
           self.assertEqual(True, nc._server_info["auth_required"])
@@ -1035,18 +1080,16 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
           yield c.nc.subscribe("foo",  "", log.persist)
           self.io_loop.spawn_callback(c.publisher)
 
+          a = nc._current_server
           yield tornado.gen.sleep(0.001)
           orig_gnatsd = self.server_pool.pop(0)
           orig_gnatsd.finish()
           yield tornado.gen.sleep(0.001)
 
-          try:
-               a = nc._current_server
-               # Wait for reconnect logic kick in...
-               yield tornado.gen.sleep(3)
-          finally:
-               b = nc._current_server
-               self.assertNotEqual(a.uri, b.uri)
+          # Wait for reconnect logic kick in...
+          yield tornado.gen.sleep(3)
+          b = nc._current_server
+          self.assertNotEqual(a.uri, b.uri)
 
           # Should have reconnected already
           self.assertTrue(nc.is_connected)
@@ -1440,6 +1483,7 @@ class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
                "error_cb": c.error_cb,
                "disconnected_cb": c.disconnected_cb,
                "reconnected_cb": c.reconnected_cb,
+               "reconnect_time_wait": 0.1,
                "tls": {
                     "cert_reqs": ssl.CERT_REQUIRED,
                     # "ca_certs": "./tests/configs/certs/ca.pem",

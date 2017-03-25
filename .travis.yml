@@ -8,9 +8,6 @@ python:
   - 2.6.9
   - 2.7
 
-env:
-  - DEBUG_NATS_TEST=true
-
 before_install:
   - bash ./script/install_gnatsd.sh
 
