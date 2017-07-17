@@ -11,6 +11,7 @@ import tornado.testing
 import tornado.gen
 import tornado.ioloop
 import tornado.iostream
+import tornado.tcpserver
 import subprocess
 import threading
 import tempfile
@@ -1509,6 +1510,79 @@ class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
           with Gnatsd(port=port, http_port=http_port, conf=conf) as gnatsd:
                with self.assertRaises(NatsError):
                     yield c.nc.connect(**options)
+
+class ShortControlLineNATSServer(tornado.tcpserver.TCPServer):
+     @tornado.gen.coroutine
+     def handle_stream(self, stream, address):
+          while True:
+               try:
+                    info_line = """INFO {"max_payload": 1048576, "tls_required": false, "server_id":"zrPhBhrjbbUdp2vndDIvE7"}\r\n"""
+                    yield stream.write(info_line)
+
+                    # Client will be awaiting for a pong next before reaching connected state.
+                    yield stream.write("""PONG\r\n""")
+                    yield tornado.gen.sleep(1)
+               except tornado.iostream.StreamClosedError:
+                    break
+
+class LargeControlLineNATSServer(tornado.tcpserver.TCPServer):
+     @tornado.gen.coroutine
+     def handle_stream(self, stream, address):
+          while True:
+               try:
+                    line = """INFO {"max_payload": 1048576, "tls_required": false, "server_id":"%s"}\r\n"""
+                    info_line = line % ("a" * 2048)
+                    yield stream.write(info_line)
+
+                    # Client will be awaiting for a pong next before reaching connected state.
+                    yield stream.write("""PONG\r\n""")
+                    yield tornado.gen.sleep(1)
+               except tornado.iostream.StreamClosedError:
+                    break
+
+class ClientConnectTest(tornado.testing.AsyncTestCase):
+
+     def setUp(self):
+          print("\n=== RUN {0}.{1}".format(self.__class__.__name__, self._testMethodName))
+          super(ClientConnectTest, self).setUp()
+
+     def tearDown(self):
+          super(ClientConnectTest, self).tearDown()
+
+     @tornado.testing.gen_test(timeout=5)
+     def test_connect_info_large_protocol_line(self):
+          # Start mock TCP Server
+          server = LargeControlLineNATSServer(io_loop=self.io_loop)
+          server.listen(4229)
+          nc = Client()
+          options = {
+               "dont_randomize": True,
+               "servers": [
+                    "nats://127.0.0.1:4229"
+                    ],
+               "io_loop": self.io_loop,
+               "verbose": False
+               }
+          print("connecting......")
+          yield nc.connect(**options)
+          self.assertTrue(nc.is_connected)
+
+     @tornado.testing.gen_test(timeout=5)
+     def test_connect_info_large_protocol_line_2(self):
+          # Start mock TCP Server
+          server = ShortControlLineNATSServer(io_loop=self.io_loop)
+          server.listen(4229)
+          nc = Client()
+          options = {
+               "dont_randomize": True,
+               "servers": [
+                    "nats://127.0.0.1:4229"
+                    ],
+               "io_loop": self.io_loop,
+               "verbose": False
+               }
+          yield nc.connect(**options)
+          self.assertTrue(nc.is_connected)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)

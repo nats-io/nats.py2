@@ -9,6 +9,7 @@ if __name__ == '__main__':
     test_suite.addTest(unittest.makeSuite(ProtocolParserTest))
     test_suite.addTest(unittest.makeSuite(ClientUtilsTest))
     test_suite.addTest(unittest.makeSuite(ClientTest))
+    test_suite.addTest(unittest.makeSuite(ClientConnectTest))
     test_suite.addTest(unittest.makeSuite(ClientAuthTest))
     test_suite.addTest(unittest.makeSuite(ClientTLSTest))
 
