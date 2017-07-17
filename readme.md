@@ -4,7 +4,7 @@ A Python async client for the [NATS messaging system](https://nats.io).
 
 [![License MIT](https://img.shields.io/badge/License-MIT-blue.svg)](http://opensource.org/licenses/MIT)
 [![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
-[![GitHub release](https://img.shields.io/badge/release-v0.5.0-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.5.0)
+[![GitHub release](https://img.shields.io/badge/release-v0.5.2-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.5.2)
 
 ## Supported platforms
 
@@ -13,7 +13,6 @@ using [Tornado 4.2+](https://github.com/tornadoweb/tornado/tree/v4.2.0)
 with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
 
 - 2.7.x
-- 2.6.x
 
 For python 3, check [asyncio-nats](https://github.com/nats-io/asyncio-nats)
 
@@ -310,7 +309,7 @@ for subscribing and publishing messages to NATS:
 
 (The MIT License)
 
-Copyright (c) 2015-2016 Apcera Inc.<br/>
+Copyright (c) 2015-2017 Apcera Inc.<br/>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
