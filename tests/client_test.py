@@ -1563,7 +1563,6 @@ class ClientConnectTest(tornado.testing.AsyncTestCase):
                "io_loop": self.io_loop,
                "verbose": False
                }
-          print("connecting......")
           yield nc.connect(**options)
           self.assertTrue(nc.is_connected)
 
