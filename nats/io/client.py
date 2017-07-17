@@ -567,7 +567,7 @@ class Client(object):
     a connection with the server.
     """
     # INFO {...}
-    line = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
+    line = yield self.io.read_until(_CRLF_, max_bytes=None)
     _, args = line.split(INFO_OP + _SPC_, 1)
     self._server_info = tornado.escape.json_decode((args))
     self._max_payload_size = self._server_info["max_payload"]
