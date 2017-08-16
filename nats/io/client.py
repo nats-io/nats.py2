@@ -537,11 +537,15 @@ class Client(object):
     dispatched to a passed callback.  In case there was not
     a callback, then it tries to set the message into a future.
     """
-    self.stats['in_msgs']  += 1
+    self.stats['in_msgs'] += 1
     self.stats['in_bytes'] += len(data)
 
     msg = Msg(subject=subject.decode(), reply=reply.decode(), data=data)
-    sub = self._subs[sid]
+
+    # Don't process the message if the subscription has been removed
+    sub = self._subs.get(sid)
+    if sub is None:
+      raise tornado.gen.Return()
     sub.received += 1
 
     if sub.max_msgs > 0 and sub.received >= sub.max_msgs:

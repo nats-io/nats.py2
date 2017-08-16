@@ -814,6 +814,11 @@ class ClientTest(tornado.testing.AsyncTestCase):
           with self.assertRaises(tornado.gen.TimeoutError):
                yield nc.timed_request("hello", "world", timeout=0.5)
 
+     @tornado.testing.gen_test
+     def test_process_message_subscription_not_present(self):
+          nc = Client()
+          yield nc._process_msg(387, 'some-subject', 'some-reply', [0, 1, 2])
+
 class ClientAuthTest(tornado.testing.AsyncTestCase):
 
      def setUp(self):
