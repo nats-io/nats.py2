@@ -496,6 +496,37 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(2, nc.stats['out_msgs'])
 
      @tornado.testing.gen_test
+     def test_publish_race_condition(self):
+          # This tests a race condition fixed in #23 where a series of large publishes
+          # followed by a flush and another publish will cause the last publish to never get written
+          nc = Client()
+
+          yield nc.connect(io_loop=self.io_loop)
+          self.assertEqual(Client.CONNECTED, nc._status)
+          info_keys = nc._server_info.keys()
+          self.assertTrue(len(info_keys) > 0)
+
+          inbox = new_inbox()
+          for i in range(100):
+               yield nc.publish("help.%s" % i, "A" * 1000000)
+          yield tornado.gen.moment  # Unblocks flusher
+          yield nc.publish("help.final", "A")
+          yield tornado.gen.sleep(1.0)
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/varz' % self.server_pool[0].http_port)
+          varz = json.loads(response.body)
+
+          self.assertEqual(100000001, varz['in_bytes'])
+          self.assertEqual(0,  varz['out_bytes'])
+          self.assertEqual(101,  varz['in_msgs'])
+          self.assertEqual(0,  varz['out_msgs'])
+          self.assertEqual(0,  nc.stats['in_bytes'])
+          self.assertEqual(100000001, nc.stats['out_bytes'])
+          self.assertEqual(0,  nc.stats['in_msgs'])
+          self.assertEqual(101,  nc.stats['out_msgs'])
+
+     @tornado.testing.gen_test
      def test_unsubscribe(self):
           nc = Client()
           options = {
