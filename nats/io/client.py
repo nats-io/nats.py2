@@ -266,7 +266,7 @@ class Client(object):
     if self._pings_outstanding > self.options["max_outstanding_pings"]:
       yield self._unbind()
     else:
-      yield self.send_command(PING_PROTO, priority=True)
+      yield self.send_command(PING_PROTO)
       yield self._flush_pending()
       if future is None:
         future = tornado.concurrent.Future()
