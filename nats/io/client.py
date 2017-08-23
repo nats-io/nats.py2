@@ -308,7 +308,7 @@ class Client(object):
       self._pending.append(cmd)
     self._pending_size += len(cmd)
 
-    if len(self._pending) > DEFAULT_PENDING_SIZE:
+    if self._pending_size > DEFAULT_PENDING_SIZE:
       yield self._flush_pending()
 
   @tornado.gen.coroutine
