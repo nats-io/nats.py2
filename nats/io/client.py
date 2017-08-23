@@ -858,6 +858,8 @@ class Client(object):
     and then flushes them to the socket.
     """
     while True:
+      tmp_pending = []
+      tmp_pending_size = 0
       try:
         # Block and wait for the flusher to be kicked
         yield self._flush_queue.get()
@@ -868,13 +870,20 @@ class Client(object):
 
         # Flush only when we actually have something in buffer...
         if self._pending_size > 0:
-          yield self.io.write(b''.join(self._pending))
-          self._pending = []
-          self._pending_size = 0
+          cmds = b''.join(self._pending)
+
+          # Reset pending queue and store tmp in case write fails
+          self._pending, tmp_pending = [], self._pending
+          self._pending_size, tmp_pending_size = 0, self._pending_size
+
+          yield self.io.write(cmds)
       except tornado.iostream.StreamBufferFullError:
         # Acumulate as pending data size and flush when possible.
-        pass
+        self._pending = tmp_pending + self._pending
+        self._pending_size += tmp_pending_size
       except tornado.iostream.StreamClosedError as e:
+        self._pending = tmp_pending + self._pending
+        self._pending_size += tmp_pending_size
         self._err = e
         if self._error_cb is not None and not self.is_reconnecting:
           self._error_cb(e)
