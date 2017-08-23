@@ -553,6 +553,69 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertEqual(501,  nc.stats['in_msgs'])
           self.assertEqual(501,  nc.stats['out_msgs'])
 
+     @tornado.testing.gen_test(timeout=15)
+     def test_publish_flush_race_condition(self):
+          # This tests a race condition fixed in #23 where a series of
+          # large publishes followed by a flush and another publish
+          # will cause the last publish to never get written.
+          nc = Client()
+
+          yield nc.connect(io_loop=self.io_loop)
+          self.assertTrue(nc.is_connected)
+
+          @tornado.gen.coroutine
+          def sub(msg):
+               sub.msgs.append(msg)
+               if len(sub.msgs) == 501:
+                    sub.future.set_result(True)
+
+          sub.msgs = []
+          sub.future = tornado.concurrent.Future()
+          yield nc.subscribe("help.*", cb=sub)
+
+          # Close to 1MB payload
+          payload = "A" * 1000000
+
+          # Publish messages from 0..499
+          for i in range(500):
+               yield nc.publish("help.%s" % i, payload)
+               if i % 10 == 0:
+                    # Relinquish control often to unblock the flusher
+                    yield tornado.gen.moment
+
+          yield nc.publish("help.500", "A")
+
+          # Flushing and doing ping/pong should not cause commands
+          # to be dropped either.
+          yield nc.flush()
+
+          # Wait for the future to yield after receiving all the messages.
+          try:
+               yield tornado.gen.with_timeout(timedelta(seconds=10), sub.future)
+          except:
+               # Skip timeout in case it may occur and let test fail
+               # when checking how many messages we received in the end.
+               pass
+
+          # We should definitely have all the messages
+          self.assertEqual(len(sub.msgs), 501)
+
+          for i in range(501):
+               self.assertEqual(sub.msgs[i].subject, u"help.%s" % (i))
+
+          http = tornado.httpclient.AsyncHTTPClient()
+          response = yield http.fetch('http://127.0.0.1:%d/varz' % self.server_pool[0].http_port)
+          varz = json.loads(response.body)
+
+          self.assertEqual(500000001, varz['in_bytes'])
+          self.assertEqual(500000001, varz['out_bytes'])
+          self.assertEqual(501,  varz['in_msgs'])
+          self.assertEqual(501,  varz['out_msgs'])
+          self.assertEqual(500000001,  nc.stats['in_bytes'])
+          self.assertEqual(500000001,  nc.stats['out_bytes'])
+          self.assertEqual(501,  nc.stats['in_msgs'])
+          self.assertEqual(501,  nc.stats['out_msgs'])
+
      @tornado.testing.gen_test
      def test_unsubscribe(self):
           nc = Client()
