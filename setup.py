@@ -9,7 +9,7 @@ setup(
     url='https://github.com/nats-io/python-nats',
     author='Waldemar Quevedo',
     author_email='wally@apcera.com',
-    license='MIT License',
+    license='Apache 2.0 License',
     packages=['nats', 'nats.io', 'nats.protocol'],
     install_requires=['tornado>=4.2'],
     zip_safe=True,
