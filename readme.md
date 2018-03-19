@@ -4,7 +4,7 @@ A Python async client for the [NATS messaging system](https://nats.io).
 
 [![License Apache 2.0](https://img.shields.io/badge/License-Apache2-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
-[![GitHub release](https://img.shields.io/badge/release-v0.5.4-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.5.4)
+[![GitHub release](https://img.shields.io/badge/release-v0.5.6-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.5.6)
 
 ## Supported platforms
 
