@@ -337,8 +337,8 @@ class Client(object):
     yield self.send_command(pub_cmd)
 
   @tornado.gen.coroutine
-  def _flush_pending(self):
-    if not self.is_connected:
+  def _flush_pending(self, check_connected=True):
+    if not self.is_connected and check_connected:
       return
     yield self._flush_queue.put(None)
 
@@ -699,12 +699,19 @@ class Client(object):
 
     if not self.options["allow_reconnect"]:
       self._process_disconnect()
+      yield self._end_flusher_loop()
       return
+
     if self.is_connected:
       self._status = Client.RECONNECTING
 
       if self._ping_timer is not None and self._ping_timer.is_running():
         self._ping_timer.stop()
+
+      if self.io and not self.io.closed():
+        self.io.close()
+
+      yield self._end_flusher_loop()
 
       while True:
         try:
@@ -904,6 +911,16 @@ class Client(object):
         if self._error_cb is not None and not self.is_reconnecting:
           self._error_cb(e)
         yield self._unbind()
+
+  @tornado.gen.coroutine
+  def _end_flusher_loop(self):
+    """
+    Let flusher_loop coroutine quit - useful when disconnecting.
+    """
+    if not self.is_connected or self.is_connecting or self.io.closed():
+      if self._flush_queue.empty():
+        self._flush_pending(check_connected=False)
+      yield tornado.gen.moment
 
 class Subscription():
 
