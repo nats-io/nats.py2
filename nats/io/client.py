@@ -706,6 +706,9 @@ class Client(object):
       if self._ping_timer is not None and self._ping_timer.is_running():
         self._ping_timer.stop()
 
+      if self.io and not self.io.closed():
+        self.io.close()
+
       while True:
         try:
           yield self._schedule_primary_and_connect()

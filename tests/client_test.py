@@ -337,6 +337,25 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertTrue(client.closed_cb_called)
 
      @tornado.testing.gen_test
+     def test_iostream_closed_on_unbind(self):
+          nc = Client()
+          yield nc.connect(io_loop=self.io_loop)
+          self.assertTrue(nc.is_connected)
+          self.assertEqual(nc.stats['reconnects'], 0)
+          old_io = nc.io
+          # Unbind and reconnect.
+          yield nc._unbind()
+          self.assertTrue(nc.is_connected)
+          self.assertEqual(nc.stats['reconnects'], 1)
+          self.assertTrue(old_io.closed())
+          self.assertFalse(nc.io.closed())
+          # Unbind, but don't reconnect.
+          nc.options["allow_reconnect"] = False
+          yield nc._unbind()
+          self.assertFalse(nc.is_connected)
+          self.assertTrue(nc.io.closed())
+
+     @tornado.testing.gen_test
      def test_subscribe(self):
           nc = Client()
           options = {
