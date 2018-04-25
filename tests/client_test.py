@@ -356,6 +356,42 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertTrue(nc.io.closed())
 
      @tornado.testing.gen_test
+     def test_flusher_exits_on_unbind(self):
+
+          class FlusherClient(Client):
+               def __init__(self, *args, **kwargs):
+                    super(FlusherClient, self).__init__(*args, **kwargs)
+                    self.flushers_running = {}
+
+               @tornado.gen.coroutine
+               def _flusher_loop(self):
+                    flusher_id = len(self.flushers_running)
+                    self.flushers_running.update({flusher_id: True})
+                    yield super(FlusherClient, self)._flusher_loop()
+                    self.flushers_running.update({flusher_id: False})
+
+          nc = FlusherClient()
+          yield nc.connect(io_loop=self.io_loop)
+          self.assertTrue(nc.is_connected)
+          self.assertEqual(len(nc.flushers_running), 1)
+          self.assertTrue(nc.flushers_running[0])
+          # Unbind and reconnect.
+          yield nc._unbind()
+          self.assertTrue(nc.is_connected)
+          self.assertEqual(len(nc.flushers_running), 2)
+          self.assertFalse(nc.flushers_running[0])
+          self.assertTrue(nc.flushers_running[1])
+          # Unbind, but don't reconnect.
+          nc.options["allow_reconnect"] = False
+          yield nc._unbind()
+          yield tornado.gen.sleep(0.1)
+          self.assertFalse(nc.is_connected)
+          self.assertTrue(nc.io.closed())
+          self.assertEqual(len(nc.flushers_running), 2)
+          self.assertFalse(nc.flushers_running[0])
+          self.assertFalse(nc.flushers_running[1])
+
+     @tornado.testing.gen_test
      def test_subscribe(self):
           nc = Client()
           options = {
