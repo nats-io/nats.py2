@@ -141,7 +141,7 @@ class Client(object):
               error_cb=None,
               disconnected_cb=None,
               reconnected_cb=None,
-              io_loop=tornado.ioloop.IOLoop.instance(),
+              io_loop=None,
               max_read_buffer_size=DEFAULT_READ_BUFFER_SIZE,
               max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
               read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
@@ -187,7 +187,7 @@ class Client(object):
     self._error_cb = error_cb
     self._disconnected_cb = disconnected_cb
     self._reconnected_cb = reconnected_cb
-    self._loop = io_loop
+    self._loop = io_loop if io_loop else tornado.ioloop.IOLoop.instance()
     self._max_read_buffer_size = max_read_buffer_size
     self._max_write_buffer_size = max_write_buffer_size
     self._read_chunk_size = read_chunk_size
