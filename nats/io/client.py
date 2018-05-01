@@ -392,7 +392,12 @@ class Client(object):
     """
     future = tornado.concurrent.Future()
     yield self._send_ping(future)
-    result = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+    try:
+      result = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+    except tornado.gen.TimeoutError:
+      # Set the future to False so it can be ignored in _process_pong.
+      future.set_result(False)
+      raise
     raise tornado.gen.Return(result)
 
   @tornado.gen.coroutine
@@ -539,12 +544,17 @@ class Client(object):
     The client will send a PING soon after CONNECT and then periodically
     to the server as a failure detector to close connections to unhealthy servers.
     For each PING the client sends, we will add a respective PONG future.
+    Here we want to find the oldest PONG future that is still running.  If the
+    flush PING-PONG already timed out, then just drop those old items.
     """
-    if len(self._pongs) > 0:
+    while len(self._pongs) > 0:
       future = self._pongs.pop(0)
-      future.set_result(True)
       self._pongs_received += 1
       self._pings_outstanding -= 1
+      # Only exit loop if future still running (hasn't exceeded flush timeout).
+      if future.running():
+        future.set_result(True)
+        break
 
   @tornado.gen.coroutine
   def _process_msg(self, sid, subject, reply, data):

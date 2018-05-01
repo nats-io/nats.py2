@@ -948,6 +948,38 @@ class ClientTest(tornado.testing.AsyncTestCase):
           self.assertFalse(nc.is_reconnecting)
 
      @tornado.testing.gen_test
+     def test_ping_slow_replies(self):
+          pongs = []
+          class Parser():
+               def __init__(self, nc):
+                    self.nc = nc
+
+               @tornado.gen.coroutine
+               def parse(self, data=''):
+                    pongs.append(data)  # but, don't process now
+
+          nc = Client()
+          nc._ps = Parser(nc)
+          yield nc.connect(io_loop=self.io_loop,
+                           ping_interval=0.1,
+                           max_outstanding_pings=20)
+          yield tornado.gen.sleep(1)
+
+          # Should have received more than 5 pongs, but processed none.
+          self.assertTrue(len(pongs) > 5)
+          self.assertTrue(len(pongs) <= nc._pings_outstanding)
+          self.assertEqual(0, nc._pongs_received)
+          self.assertEqual(len(nc._pongs), nc._pings_outstanding)
+          # Process all that were sent.
+          expected_outstanding = nc._pings_outstanding
+          for i in range(nc._pings_outstanding):
+               yield nc._process_pong()
+               expected_outstanding -= 1
+               self.assertEqual(expected_outstanding, nc._pings_outstanding)
+               self.assertEqual(expected_outstanding, len(nc._pongs))
+               self.assertEqual(i + 1, nc._pongs_received)
+
+     @tornado.testing.gen_test
      def test_flush_timeout(self):
 
           class Parser():
@@ -968,6 +1000,35 @@ class ClientTest(tornado.testing.AsyncTestCase):
                yield nc.flush(timeout=1)
           self.assertEqual(1, len(nc._pongs))
           self.assertEqual(1, nc._pings_outstanding)
+
+     @tornado.testing.gen_test
+     def test_flush_timeout_lost_message(self):
+
+          class Parser():
+               def __init__(self, nc):
+                    self.nc = nc
+                    self.drop_messages = False
+
+               @tornado.gen.coroutine
+               def parse(self, data=''):
+                    if not self.drop_messages:
+                         yield self.nc._process_pong()
+
+          nc = Client()
+          nc._ps = Parser(nc)
+          yield nc.connect(io_loop=self.io_loop)
+          nc._ps.drop_messages = True
+          with self.assertRaises(tornado.gen.TimeoutError):
+               yield nc.flush(timeout=1)
+          self.assertEqual(1, len(nc._pongs))
+          self.assertEqual(1, nc._pings_outstanding)
+          self.assertEqual(0, nc._pongs_received)
+          # Successful flush must clear timed out pong and the new one.
+          nc._ps.drop_messages = False
+          yield nc.flush(timeout=1)
+          self.assertEqual(0, len(nc._pongs))
+          self.assertEqual(0, nc._pings_outstanding)
+          self.assertEqual(2, nc._pongs_received)
 
      @tornado.testing.gen_test
      def test_timed_request_timeout(self):
