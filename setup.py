@@ -13,7 +13,7 @@ setup(
     long_description='Tornado based Python client for NATS, a lightweight, high-performance cloud native messaging system',
     url='https://github.com/nats-io/python-nats',
     author='Waldemar Quevedo',
-    author_email='wally@apcera.com',
+    author_email='wally@synadia.com',
     license='Apache 2.0 License',
     packages=['nats', 'nats.io', 'nats.protocol'],
     install_requires=requirements,

@@ -4,7 +4,7 @@ A Python async client for the [NATS messaging system](https://nats.io).
 
 [![License Apache 2.0](https://img.shields.io/badge/License-Apache2-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
-[![GitHub release](https://img.shields.io/badge/release-v0.5.6-cafe12.svg)](https://github.com/nats-io/python-nats/releases/tag/v0.5.6)
+[![pypi](https://img.shields.io/pypi/v/nats-client.svg)](https://pypi.org/project/nats-client)
 
 ## Supported platforms
 
@@ -14,7 +14,7 @@ with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
 
 - 2.7.x
 
-For python 3, check [asyncio-nats](https://github.com/nats-io/asyncio-nats)
+For Python 3, check [asyncio-nats](https://github.com/nats-io/asyncio-nats)
 
 ## Getting Started
 
