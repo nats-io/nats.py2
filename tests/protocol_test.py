@@ -6,6 +6,7 @@ import tornado.gen
 from nats.io.client import Subscription
 from nats.protocol.parser import *
 
+
 class MockNatsClient:
 
     def __init__(self):
@@ -13,7 +14,7 @@ class MockNatsClient:
         self._pongs = []
         self._pings_outstanding = 0
         self._pongs_received = 0
-        self._server_info = {"max_payload": 1048576, "auth_required": False }
+        self._server_info = {"max_payload": 1048576, "auth_required": False}
 
     @tornado.gen.coroutine
     def send_command(self, cmd):
@@ -34,6 +35,7 @@ class MockNatsClient:
     @tornado.gen.coroutine
     def _process_err(self, err=None):
         pass
+
 
 class ProtocolParserTest(tornado.testing.AsyncTestCase):
 
@@ -67,14 +69,14 @@ class ProtocolParserTest(tornado.testing.AsyncTestCase):
         expected = b'hello world!'
 
         def payload_test(msg):
-          self.assertEqual(msg["data"], expected)
+            self.assertEqual(msg["data"], expected)
 
         params = {
-             "subject": "hello",
-             "queue": None,
-             "cb": payload_test,
-             "future": None
-             }
+            "subject": "hello",
+            "queue": None,
+            "cb": payload_test,
+            "future": None
+        }
         sub = Subscription(**params)
         nc._subs[1] = sub
         ps = Parser(nc)
@@ -126,8 +128,8 @@ class ProtocolParserTest(tornado.testing.AsyncTestCase):
         ps = Parser()
         data = b'MSG PONG\r\n'
         with self.assertRaises(ErrProtocol):
-             yield ps.parse(data)
-             self.assertEqual(ps.state, AWAITING_CONTROL_LINE)
+            yield ps.parse(data)
+            self.assertEqual(ps.state, AWAITING_CONTROL_LINE)
 
     @tornado.testing.gen_test
     def test_parse_err_op(self):
@@ -146,8 +148,9 @@ class ProtocolParserTest(tornado.testing.AsyncTestCase):
         self.assertEqual(ps.state, AWAITING_CONTROL_LINE)
 
     def test_parser_repr(self):
-         ps = Parser()
-         self.assertEqual(repr(ps), "<nats protocol parser state=1>")
+        ps = Parser()
+        self.assertEqual(repr(ps), "<nats protocol parser state=1>")
+
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
