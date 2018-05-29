@@ -1706,7 +1706,7 @@ class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
             key_file:  './tests/configs/certs/server-key.pem'
             ca_file:   './tests/configs/certs/ca.pem'
             timeout:   10
-            verify: true
+            verify:    true
           }
           """
 
@@ -1729,6 +1729,47 @@ class ClientTLSCertsTest(tornado.testing.AsyncTestCase):
             self.assertTrue(c.close_cb_called)
             self.assertFalse(c.error_cb_called)
             self.assertFalse(c.reconnected_cb_called)
+
+    @tornado.testing.gen_test(timeout=10)
+    def test_tls_verify_short_timeout_no_servers_available(self):
+        nc = Client()
+        c = self.Component(nc)
+        options = {
+            "servers": [
+                "nats://127.0.0.1:4446"
+            ],
+            "allow_reconnect": False,
+            "io_loop": self.io_loop,
+            "close_cb": c.close_cb,
+            "error_cb": c.error_cb,
+            "disconnected_cb": c.disconnected_cb,
+            "reconnected_cb": c.reconnected_cb,
+            "tls": {
+                "cert_reqs": ssl.CERT_REQUIRED,
+                "ca_certs": "./tests/configs/certs/ca.pem",
+                "keyfile":  "./tests/configs/certs/client-key.pem",
+                "certfile": "./tests/configs/certs/client-cert.pem"
+            }
+        }
+
+        conf = """
+          # port: 4446
+          port: 4446
+          net: 127.0.0.1
+
+          http_port: 8446
+          tls {
+            cert_file: './tests/configs/certs/server-cert.pem'
+            key_file:  './tests/configs/certs/server-key.pem'
+            ca_file:   './tests/configs/certs/ca.pem'
+            timeout:   0.0001
+            verify:    true
+          }
+          """
+
+        with Gnatsd(port=4446, http_port=8446, conf=conf) as gnatsd:
+            with self.assertRaises(ErrNoServers):
+                yield c.nc.connect(**options)
 
     @tornado.testing.gen_test(timeout=10)
     def test_tls_verify_fails(self):

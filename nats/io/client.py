@@ -933,7 +933,7 @@ class Client(object):
         Let flusher_loop coroutine quit - useful when disconnecting.
         """
         if not self.is_connected or self.is_connecting or self.io.closed():
-            if self._flush_queue.empty():
+            if self._flush_queue is not None and self._flush_queue.empty():
                 self._flush_pending(check_connected=False)
             yield tornado.gen.moment
 
