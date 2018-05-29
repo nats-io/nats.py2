@@ -18,20 +18,26 @@ Exported errors which can be thrown by the NATS client.
 
 import socket
 
+
 class NatsError(Exception):
     pass
+
 
 class ErrAuthorization(NatsError):
     pass
 
+
 class ErrConnectionClosed(NatsError):
     pass
+
 
 class ErrSecureConnRequired(NatsError):
     pass
 
+
 class ErrJsonParse(NatsError):
     pass
+
 
 class ErrSlowConsumer(NatsError):
     """
@@ -41,12 +47,14 @@ class ErrSlowConsumer(NatsError):
     """
     pass
 
+
 class ErrStaleConnection(NatsError):
     """
     A connection becomes stale if there is a transgression
     in the number of maximum allowed pings not being responded.
     """
     pass
+
 
 class ErrMaxPayload(NatsError):
     """
@@ -56,6 +64,7 @@ class ErrMaxPayload(NatsError):
     """
     pass
 
+
 class ErrNoServers(NatsError):
     """
     Raised when the number of reconnect attempts is exhausted
@@ -63,6 +72,7 @@ class ErrNoServers(NatsError):
     allow reconnect option is was disabled.
     """
     pass
+
 
 class ErrServerConnect(socket.error):
     """
