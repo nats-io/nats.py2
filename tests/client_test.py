@@ -1573,8 +1573,8 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
         self.assertFalse(c.error_cb_called)
         self.assertFalse(c.reconnected_cb_called)
 
-    @tornado.testing.gen_test(timeout=10)
-    def test_tls_reconnection(self):
+    @tornado.testing.gen_test(timeout=15)
+    def test_tls_reconnection(self):      
 
         class Component:
             def __init__(self, nc):
@@ -1585,6 +1585,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
                 self.disconnected_cb_called = False
                 self.reconnected_cb_called = False
                 self.msgs = []
+                self.reconnected_future = tornado.concurrent.Future()
 
             @tornado.gen.coroutine
             def subscription_handler(self, msg):
@@ -1602,6 +1603,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
 
             def reconnected_cb(self):
                 self.reconnected_cb_called = True
+                self.reconnected_future.set_result(True)
 
         nc = Client()
         c = Component(nc)
@@ -1632,7 +1634,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
         try:
             a = nc._current_server
             # Wait for reconnect logic kick in...
-            yield tornado.gen.sleep(5)
+            yield tornado.gen.with_timeout(timedelta(seconds=10), c.reconnected_future)
         finally:
             b = nc._current_server
             self.assertNotEqual(a.uri, b.uri)
@@ -1941,14 +1943,12 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 yield tornado.gen.sleep(1)
                 srvs = {}
                 for item in nc._server_pool:
-                    print("A", item.uri.netloc)
                     srvs[item.uri.port] = True
                 self.assertEqual(len(srvs.keys()), 2)
 
                 with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
                     yield tornado.gen.sleep(1)
                     for item in nc._server_pool:
-                        print("B", item.uri.netloc)
                         srvs[item.uri.port] = True
                     self.assertEqual(3, len(srvs.keys()))
 
@@ -1995,7 +1995,6 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 yield tornado.gen.sleep(1)
                 srvs = []
                 for item in nc._server_pool:
-                    print("A", item.uri.netloc)
                     if item.uri.port not in srvs:
                         srvs.append(item.uri.port)
                 self.assertEqual(len(srvs), 2)
@@ -2003,7 +2002,6 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
                     yield tornado.gen.sleep(1)
                     for item in nc._server_pool:
-                        print("B", item.uri.netloc)
                         if item.uri.port not in srvs:
                             srvs.append(item.uri.port)
                     self.assertEqual([4222, 4223, 4224], srvs)
