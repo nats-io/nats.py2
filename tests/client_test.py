@@ -1915,9 +1915,8 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
     def tearDown(self):
         super(ClientClusteringDiscoveryTest, self).tearDown()
 
-    @tornado.testing.gen_test
+    @tornado.testing.gen_test(timeout=15)
     def test_servers_discovery(self):
-        # Start with single server
         conf = """
         cluster {
           routes = [
@@ -1942,12 +1941,14 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 yield tornado.gen.sleep(1)
                 srvs = {}
                 for item in nc._server_pool:
+                    print("A", item.uri.netloc)
                     srvs[item.uri.port] = True
                 self.assertEqual(len(srvs.keys()), 2)
 
                 with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
                     yield tornado.gen.sleep(1)
                     for item in nc._server_pool:
+                        print("B", item.uri.netloc)
                         srvs[item.uri.port] = True
                     self.assertEqual(3, len(srvs.keys()))
 
@@ -1968,7 +1969,7 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                     self.assertNotEqual(initial_uri, final_uri)
         yield nc.close()
 
-    @tornado.testing.gen_test
+    @tornado.testing.gen_test(timeout=15)
     def test_servers_discovery_no_randomize(self):
         conf = """
         cluster {
@@ -1994,6 +1995,7 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 yield tornado.gen.sleep(1)
                 srvs = []
                 for item in nc._server_pool:
+                    print("A", item.uri.netloc)
                     if item.uri.port not in srvs:
                         srvs.append(item.uri.port)
                 self.assertEqual(len(srvs), 2)
@@ -2001,6 +2003,7 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
                     yield tornado.gen.sleep(1)
                     for item in nc._server_pool:
+                        print("B", item.uri.netloc)
                         if item.uri.port not in srvs:
                             srvs.append(item.uri.port)
                     self.assertEqual([4222, 4223, 4224], srvs)
