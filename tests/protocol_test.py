@@ -29,7 +29,7 @@ class MockNatsClient:
         pass
 
     @tornado.gen.coroutine
-    def _process_info(self):
+    def _process_info(self, info_line):
         pass
 
     @tornado.gen.coroutine
