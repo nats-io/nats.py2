@@ -29,6 +29,10 @@ class MockNatsClient:
         pass
 
     @tornado.gen.coroutine
+    def _process_info(self):
+        pass
+
+    @tornado.gen.coroutine
     def _process_msg(self, sid, subject, reply, payload):
         sub = self._subs[sid]
 
@@ -59,6 +63,14 @@ class ProtocolParserTest(tornado.testing.AsyncTestCase):
     def test_parse_ok(self):
         ps = Parser()
         data = b'+OK\r\n'
+        yield ps.parse(data)
+        self.assertEqual(len(ps.buf), 0)
+        self.assertEqual(ps.state, AWAITING_CONTROL_LINE)
+
+    @tornado.testing.gen_test
+    def test_parse_info(self):
+        ps = Parser(MockNatsClient())
+        data = b'INFO {}\r\n'
         yield ps.parse(data)
         self.assertEqual(len(ps.buf), 0)
         self.assertEqual(ps.state, AWAITING_CONTROL_LINE)

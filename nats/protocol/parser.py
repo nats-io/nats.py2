@@ -121,6 +121,13 @@ class Parser(object):
                     yield self.nc._process_pong()
                     continue
 
+                info = INFO_RE.match(self.buf)
+                if info:
+                    info_line = info.groups()[0]
+                    self.nc._process_info(info_line)
+                    del self.buf[:info.end()]
+                    continue
+
                 # If nothing matched at this point, then probably
                 # a split buffer and need to gather more bytes,
                 # otherwise it would mean that there is an issue
