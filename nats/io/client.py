@@ -67,6 +67,7 @@ DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
 DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
 
+PROTOCOL = 1
 
 class Client(object):
     """
@@ -899,6 +900,28 @@ class Client(object):
 
     def last_error(self):
         return self._err
+
+    @property
+    def connected_url(self):
+        if self.is_connected:
+            return self._current_server.uri
+        else:
+            return None
+
+    @property
+    def servers(self):
+        servers = []
+        for srv in self._server_pool:
+            servers.append(srv)
+        return servers
+
+    @property
+    def discovered_servers(self):
+        servers = []
+        for srv in self._server_pool:
+            if srv.discovered:
+                servers.append(srv)
+        return servers
 
     @tornado.gen.coroutine
     def _read_loop(self, data=''):
