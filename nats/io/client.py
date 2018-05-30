@@ -938,7 +938,7 @@ class Client(object):
                 yield self.io.read_bytes(DEFAULT_READ_CHUNK_SIZE, streaming_callback=self._ps.parse, partial=True)
             except tornado.iostream.StreamClosedError as e:
                 self._err = e
-                if self._error_cb is not None and not self.is_reconnecting:
+                if self._error_cb is not None and not self.is_reconnecting and not self.is_closed:
                     self._error_cb(e)
                 break
 
