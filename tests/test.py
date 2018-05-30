@@ -12,6 +12,7 @@ if __name__ == '__main__':
     test_suite.addTest(unittest.makeSuite(ClientConnectTest))
     test_suite.addTest(unittest.makeSuite(ClientAuthTest))
     test_suite.addTest(unittest.makeSuite(ClientTLSTest))
+    test_suite.addTest(unittest.makeSuite(ClientClusteringDiscoveryTest))
 
     # Skip verify tests unless on Python 2.7
     if sys.version_info >= (2, 7):

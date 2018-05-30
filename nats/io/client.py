@@ -67,6 +67,7 @@ DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
 DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
 
+PROTOCOL = 1
 
 class Client(object):
     """
@@ -298,7 +299,8 @@ class Client(object):
             "verbose":  self.options["verbose"],
             "pedantic": self.options["pedantic"],
             "lang":     __lang__,
-            "version":  __version__
+            "version":  __version__,
+            "protocol": PROTOCOL
         }
         if "auth_required" in self._server_info:
             if self._server_info["auth_required"] == True:
@@ -665,6 +667,34 @@ class Client(object):
         self._flush_queue = tornado.queues.Queue(maxsize=1024)
         self._loop.spawn_callback(self._flusher_loop)
 
+    def _process_info(self, info_line):
+        """
+        Process INFO lines sent by the server to reconfigure client
+        with latest updates from cluster to enable server discovery.
+        """
+        info = tornado.escape.json_decode(info_line.decode())
+
+        if 'connect_urls' in info:
+            if info['connect_urls']:
+                connect_urls = []
+                for connect_url in info['connect_urls']:
+                    uri = urlparse("nats://%s" % connect_url)
+                    srv = Srv(uri)
+                    srv.discovered = True
+
+                    # Filter for any similar server in the server pool already.
+                    should_add = True
+                    for s in self._server_pool:
+                        if uri.netloc == s.uri.netloc:
+                            should_add = False
+                    if should_add:
+                        connect_urls.append(srv)
+
+                if self.options["dont_randomize"] is not True:
+                    shuffle(connect_urls)
+                for srv in connect_urls:
+                    self._server_pool.append(srv)
+
     def _next_server(self):
         """
         Chooses next available server to connect.
@@ -871,6 +901,28 @@ class Client(object):
     def last_error(self):
         return self._err
 
+    @property
+    def connected_url(self):
+        if self.is_connected:
+            return self._current_server.uri
+        else:
+            return None
+
+    @property
+    def servers(self):
+        servers = []
+        for srv in self._server_pool:
+            servers.append(srv)
+        return servers
+
+    @property
+    def discovered_servers(self):
+        servers = []
+        for srv in self._server_pool:
+            if srv.discovered:
+                servers.append(srv)
+        return servers
+
     @tornado.gen.coroutine
     def _read_loop(self, data=''):
         """
@@ -981,3 +1033,4 @@ class Srv(object):
         self.reconnects = 0
         self.last_attempt = None
         self.did_connect = False
+        self.discovered = False
