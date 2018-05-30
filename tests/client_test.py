@@ -37,12 +37,14 @@ class Gnatsd(object):
                  config_file=None,
                  debug=False,
                  conf=None,
+                 cluster_port=None,
                  ):
         self.port = port
         self.user = user
         self.password = password
         self.timeout = timeout
         self.http_port = http_port
+        self.cluster_port = cluster_port
         self.proc = None
         self.debug = debug
         self.config_file = config_file
@@ -88,6 +90,11 @@ class Gnatsd(object):
         cmd.append("%d" % self.port)
         cmd.append("-m")
         cmd.append("%d" % self.http_port)
+
+        if self.cluster_port is not None:
+            cmd.append("--cluster")
+            cmd.append("nats://127.0.0.1:%d" % self.cluster_port)
+
         if self.config_file is not None:
             cmd.append("-c")
             cmd.append(self.config_file.name)
@@ -127,8 +134,14 @@ class Gnatsd(object):
             print(
                 "[\033[0;31mDEBUG\033[0;0m] Failed terminating server listening on port %d" % self.port)
         else:
-            self.proc.terminate()
-            self.proc.wait()
+            try:
+                self.proc.terminate()
+                self.proc.wait()
+            except Exception as e:
+                if self.debug:
+                    print(
+                        "[\033[0;33m WARN\033[0;0m] Could not stop server listening on %d. (%s)" % (self.port, e))
+
             if self.debug:
                 print(
                     "[\033[0;33mDEBUG\033[0;0m] Server listening on %d was stopped." % self.port)
@@ -159,7 +172,7 @@ class ClientUtilsTest(unittest.TestCase):
         nc.options["auth_required"] = False
         nc.options["name"] = None
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"lang": "python2", "pedantic": false, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     def test_default_connect_command_with_name(self):
@@ -169,7 +182,7 @@ class ClientUtilsTest(unittest.TestCase):
         nc.options["auth_required"] = False
         nc.options["name"] = "secret"
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "name": "secret", "pedantic": false, "verbose": false, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"lang": "python2", "name": "secret", "pedantic": false, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     def tests_generate_new_inbox(self):
@@ -229,7 +242,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertTrue(len(info_keys) > 0)
 
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": false, "verbose": true, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"lang": "python2", "pedantic": false, "protocol": 1, "verbose": true, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     @tornado.testing.gen_test
@@ -241,7 +254,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertTrue(len(info_keys) > 0)
 
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": true, "verbose": false, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"lang": "python2", "pedantic": true, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     @tornado.testing.gen_test
@@ -1890,6 +1903,106 @@ class ClientConnectTest(tornado.testing.AsyncTestCase):
         yield nc.connect(**options)
         self.assertTrue(nc.is_connected)
 
+class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
+
+    def setUp(self):
+        print("\n=== RUN {0}.{1}".format(
+            self.__class__.__name__, self._testMethodName))
+        super(ClientClusteringDiscoveryTest, self).setUp()
+
+    def tearDown(self):
+        super(ClientClusteringDiscoveryTest, self).tearDown()
+
+    @tornado.testing.gen_test
+    def test_servers_discovery(self):
+        # Start with single server
+        conf = """
+        cluster {
+          routes = [
+            nats-route://127.0.0.1:6222
+          ]
+        }
+        """
+
+        nc = Client()
+        options = {
+            "servers": [
+                "nats://127.0.0.1:4222"
+            ],
+            "io_loop": self.io_loop,
+        }
+
+        with Gnatsd(port=4222, http_port=8222, cluster_port=6222, conf=conf) as nats1:
+            yield nc.connect(**options)
+            yield tornado.gen.sleep(0.5)
+            initial_uri = nc.connected_url
+            with Gnatsd(port=4223, http_port=8223, cluster_port=6223, conf=conf) as nats2:
+                yield tornado.gen.sleep(0.5)
+                srvs = {}
+                for item in nc._server_pool:
+                    srvs[item.uri.port] = True
+                self.assertEqual(len(srvs.keys()), 2)
+
+                with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
+                    yield tornado.gen.sleep(0.5)
+                    for item in nc._server_pool:
+                        srvs[item.uri.port] = True
+                    self.assertEqual(3, len(srvs.keys()))
+
+                    srvs = {}
+                    for item in nc.discovered_servers:
+                        srvs[item.uri.port] = True
+                    self.assertTrue(2 <= len(srvs.keys()) <= 3)
+
+                    srvs = {}
+                    for item in nc.servers:
+                        srvs[item.uri.port] = True
+                    self.assertEqual(3, len(srvs.keys()))
+
+                    # Terminate the first server and wait for reconnect
+                    nats1.finish()
+                    yield tornado.gen.sleep(0.5)
+                    final_uri = nc.connected_url
+                    self.assertNotEqual(initial_uri, final_uri)
+        yield nc.close()
+
+    @tornado.testing.gen_test
+    def test_servers_discovery_no_randomize(self):
+        conf = """
+        cluster {
+          routes = [
+            nats-route://127.0.0.1:6222
+          ]
+        }
+        """
+
+        nc = Client()
+        options = {
+            "servers": [
+                "nats://127.0.0.1:4222"
+            ],
+            "dont_randomize": True,
+            "io_loop": self.io_loop,
+        }
+
+        with Gnatsd(port=4222, http_port=8222, cluster_port=6222, conf=conf) as nats1:
+            yield nc.connect(**options)
+            yield tornado.gen.sleep(0.5)
+            with Gnatsd(port=4223, http_port=8223, cluster_port=6223, conf=conf) as nats2:
+                yield tornado.gen.sleep(0.5)
+                srvs = []
+                for item in nc._server_pool:
+                    if item.uri.port not in srvs:
+                        srvs.append(item.uri.port)
+                self.assertEqual(len(srvs), 2)
+
+                with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
+                    yield tornado.gen.sleep(0.5)
+                    for item in nc._server_pool:
+                        if item.uri.port not in srvs:
+                            srvs.append(item.uri.port)
+                    self.assertEqual([4222, 4223, 4224], srvs)
+        yield nc.close()
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
