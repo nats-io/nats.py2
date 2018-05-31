@@ -1052,6 +1052,13 @@ class Msg(object):
         self.data = data
         self.sid = sid
 
+    def __repr__(self):
+        return "<{}: subject='{}' reply='{}' data='{}...'>".format(
+            self.__class__.__name__,
+            self.subject,
+            self.reply,
+            self.data[:10].decode(),
+            )
 
 class Srv(object):
     """
