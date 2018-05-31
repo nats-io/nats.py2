@@ -67,6 +67,10 @@ DEFAULT_READ_CHUNK_SIZE = 32768 * 2
 DEFAULT_PENDING_SIZE = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE = 1048576
 
+# Default Pending Limits of Subscriptions
+DEFAULT_SUB_PENDING_MSGS_LIMIT  = 65536
+DEFAULT_SUB_PENDING_BYTES_LIMIT = 65536 * 1024
+
 PROTOCOL = 1
 INBOX_PREFIX = bytearray(b'_INBOX.')
 
@@ -118,7 +122,6 @@ class Client(object):
         self._ps = Parser(self)
         self._err = None
         self._flush_queue = None
-        self._flusher_task = None
 
         self._nuid = NUID()
 
@@ -466,11 +469,15 @@ class Client(object):
                   cb=None,
                   future=None,
                   max_msgs=0,
-                  is_async=False):
+                  is_async=False,
+                  pending_msgs_limit=DEFAULT_SUB_PENDING_MSGS_LIMIT,
+                  pending_bytes_limit=DEFAULT_SUB_PENDING_BYTES_LIMIT,
+                  ):
         """
-        Sends a SUB command to the server. Takes a queue parameter which can be used
-        in case of distributed queues or left empty if it is not the case, and a callback
-        that will be dispatched message for processing them.
+        Sends a SUB command to the server. Takes a queue parameter
+        which can be used in case of distributed queues or left empty
+        if it is not the case, and a callback that will be dispatched
+        message for processing them.
         """
         if self.is_closed:
             raise ErrConnectionClosed
@@ -486,7 +493,55 @@ class Client(object):
             is_async=is_async,
         )
         self._subs[sid] = sub
-        yield self._subscribe(sub, sid)
+
+        if cb is not None:
+            sub.pending_msgs_limit = pending_msgs_limit
+            sub.pending_bytes_limit = pending_bytes_limit
+            sub.pending_queue = tornado.queues.Queue(
+                maxsize=pending_msgs_limit,
+                )
+
+            @tornado.gen.coroutine
+            def wait_for_msgs():
+                sub = wait_for_msgs.sub
+                err_cb = wait_for_msgs.err_cb
+
+                while True:
+                    try:
+                        msg = yield sub.pending_queue.get()
+                        sub.pending_size -= len(msg.data)
+
+                        # Invoke depending of type of handler.
+                        if sub.is_async:
+                            # NOTE: Deprecate this usage in a next release,
+                            # the handler implementation ought to decide
+                            # the concurrency level at which the messages
+                            # should be processed.
+                            self._loop.spawn_callback(sub.cb, msg)
+                        else:
+                            # Call it and take the possible future in the loop.
+                            yield sub.cb(msg)
+                    except Exception as e:
+                        # All errors from calling an async subscriber
+                        # handler are async errors.
+                        if err_cb is not None:
+                            yield err_cb(e)
+
+            # Bind the subscription and error cb if present
+            wait_for_msgs.sub = sub
+            wait_for_msgs.err_cb = self._error_cb
+            sub.wait_for_msgs_task = self._loop.spawn_callback(wait_for_msgs)
+
+        elif future is not None:
+            # Used to handle the single response from a request
+            # based on auto unsubscribe.
+            sub.future = future
+
+        # Send SUB command...
+        sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(
+        ), _SPC_, sub.queue.encode(), _SPC_, ("%d" % sid).encode(), _CRLF_])
+        yield self.send_command(sub_cmd)
+        yield self._flush_pending()
         raise tornado.gen.Return(sid)
 
     @tornado.gen.coroutine
@@ -526,19 +581,6 @@ class Client(object):
         # so that we can suppress here.
         if not self.is_reconnecting:
             yield self.auto_unsubscribe(ssid, max_msgs)
-
-    @tornado.gen.coroutine
-    def _subscribe(self, sub, ssid):
-        """
-        Generates a SUB command given a Subscription and the subject sequence id.
-        """
-        sub_cmd = b''.join([
-            SUB_OP, _SPC_,
-            sub.subject.encode(), _SPC_,
-            sub.queue.encode(), _SPC_, ("%d" % ssid).encode(), _CRLF_
-        ])
-        yield self.send_command(sub_cmd)
-        yield self._flush_pending()
 
     @tornado.gen.coroutine
     def auto_unsubscribe(self, sid, limit=1):
@@ -590,8 +632,9 @@ class Client(object):
         dispatched to a passed callback.  In case there was not
         a callback, then it tries to set the message into a future.
         """
+        payload_size = len(data)
         self.stats['in_msgs'] += 1
-        self.stats['in_bytes'] += len(data)
+        self.stats['in_bytes'] += payload_size
 
         msg = Msg(subject=subject.decode(), reply=reply.decode(), data=data)
 
@@ -605,17 +648,29 @@ class Client(object):
             # Enough messages so can throwaway subscription now.
             self._subs.pop(sid, None)
 
-        if sub.cb is not None:
-            if sub.is_async:
-                self._loop.spawn_callback(sub.cb, msg)
-            else:
-                # Call it and take the possible future in the loop.
-                maybe_future = sub.cb(msg)
-                if maybe_future is not None and type(
-                        maybe_future) is tornado.concurrent.Future:
-                    yield maybe_future
-        elif sub.future is not None:
+        # Check if it is an old style request.
+        if sub.future is not None:
             sub.future.set_result(msg)
+            raise tornado.gen.Return()
+
+        # Let subscription wait_for_msgs coroutine process the messages,
+        # but in case sending to the subscription task would block,
+        # then consider it to be an slow consumer and drop the message.
+        try:
+            sub.pending_size += payload_size
+            if sub.pending_size >= sub.pending_bytes_limit:
+                # Substract again the bytes since throwing away
+                # the message so would not be pending data.
+                sub.pending_size -= payload_size
+
+                if self._error_cb is not None:
+                    yield self._error_cb(ErrSlowConsumer())
+                raise tornado.gen.Return()
+
+            yield sub.pending_queue.put_nowait(msg)
+        except tornado.queues.QueueFull:
+            if self._error_cb is not None:
+                yield self._error_cb(ErrSlowConsumer())
 
     @tornado.gen.coroutine
     def _process_connect_init(self):
@@ -1036,6 +1091,13 @@ class Subscription():
         self.max_msgs = max_msgs
         self.is_async = is_async
         self.received = 0
+
+        # Per subscription message processor
+        self.pending_msgs_limit = None
+        self.pending_bytes_limit = None
+        self.pending_queue = None
+        self.pending_size = 0
+        self.wait_for_msgs_task = None
 
 
 class Msg(object):
