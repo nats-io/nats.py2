@@ -3,11 +3,13 @@ import unittest
 
 from tests.client_test import *
 from tests.protocol_test import *
+from tests.nuid_test import *
 
 if __name__ == '__main__':
     test_suite = unittest.TestSuite()
     test_suite.addTest(unittest.makeSuite(ProtocolParserTest))
     test_suite.addTest(unittest.makeSuite(ClientUtilsTest))
+    test_suite.addTest(unittest.makeSuite(NUIDTest))
     test_suite.addTest(unittest.makeSuite(ClientTest))
     test_suite.addTest(unittest.makeSuite(ClientConnectTest))
     test_suite.addTest(unittest.makeSuite(ClientAuthTest))
