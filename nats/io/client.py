@@ -29,7 +29,7 @@ from urlparse import urlparse
 from datetime import timedelta
 from nats import __lang__, __version__
 from nats.io.errors import *
-from nats.io.utils import *
+from nats.io.nuid import NUID
 from nats.protocol.parser import *
 
 CONNECT_PROTO = b'{0} {1}{2}'
@@ -68,6 +68,7 @@ DEFAULT_PENDING_SIZE      = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
 
 PROTOCOL = 1
+INBOX_PREFIX = bytearray(b'_INBOX.')
 
 class Client(object):
     """
@@ -117,6 +118,8 @@ class Client(object):
         self._err = None
         self._flush_queue = None
         self._flusher_task = None
+
+        self._nuid = NUID()
 
         # Ping interval to disconnect from unhealthy servers.
         self._ping_timer = None
@@ -411,14 +414,16 @@ class Client(object):
         using an ephemeral subscription which will be published
         with customizable limited interest.
 
-          ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
+          ->> SUB _INBOX.gnKUg9bmAHANjxIsDiQsWO 90
           ->> UNSUB 90 1
-          ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
+          ->> PUB hello _INBOX.gnKUg9bmAHANjxIsDiQsWO 5
           ->> MSG_PAYLOAD: world
-          <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+          <<- MSG hello 2 _INBOX.gnKUg9bmAHANjxIsDiQsWO 5
 
         """
-        inbox = new_inbox()
+        next_inbox = INBOX_PREFIX[:]
+        next_inbox.extend(self._nuid.next())
+        inbox = str(next_inbox)
         sid = yield self.subscribe(inbox, _EMPTY_, cb)
         yield self.auto_unsubscribe(sid, expected)
         yield self.publish_request(subject, inbox, payload)
@@ -432,14 +437,16 @@ class Client(object):
         with a limited interest of 1 reply returning the response
         or raising a Timeout error.
 
-          ->> SUB _INBOX.2007314fe0fcb2cdc2a2914c1 90
+          ->> SUB _INBOX.E9jM2HTirMXDMXPROSQmSd 90
           ->> UNSUB 90 1
-          ->> PUB hello _INBOX.2007314fe0fcb2cdc2a2914c1 5
+          ->> PUB hello _INBOX.E9jM2HTirMXDMXPROSQmSd 5
           ->> MSG_PAYLOAD: world
-          <<- MSG hello 2 _INBOX.2007314fe0fcb2cdc2a2914c1 5
+          <<- MSG hello 2 _INBOX.E9jM2HTirMXDMXPROSQmSd 5
 
         """
-        inbox = new_inbox()
+        next_inbox = INBOX_PREFIX[:]
+        next_inbox.extend(self._nuid.next())
+        inbox = str(next_inbox)
         future = tornado.concurrent.Future()
         sid = yield self.subscribe(subject=inbox, queue=_EMPTY_, cb=None, future=future, max_msgs=1)
         yield self.auto_unsubscribe(sid, 1)
