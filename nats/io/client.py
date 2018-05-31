@@ -1039,13 +1039,14 @@ class Subscription():
 
 
 class Msg(object):
-    def __init__(
-            self,
-            subject='',
-            reply='',
-            data=b'',
-            sid=0,
-    ):
+    __slots__ = 'subject', 'reply', 'data', 'sid'
+
+    def __init__(self,
+                 subject='',
+                 reply='',
+                 data=b'',
+                 sid=0,
+        ):
         self.subject = subject
         self.reply = reply
         self.data = data
