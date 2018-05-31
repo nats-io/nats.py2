@@ -73,6 +73,7 @@ DEFAULT_SUB_PENDING_BYTES_LIMIT = 65536 * 1024
 
 PROTOCOL = 1
 INBOX_PREFIX = bytearray(b'_INBOX.')
+INBOX_PREFIX_LEN = len(INBOX_PREFIX) + 22 + 1
 
 
 class Client(object):
@@ -123,6 +124,10 @@ class Client(object):
         self._err = None
         self._flush_queue = None
 
+        # New style request/response
+        self._resp_sub = None
+        self._resp_map = None
+        self._resp_sub_prefix = None
         self._nuid = NUID()
 
         # Ping interval to disconnect from unhealthy servers.
@@ -414,7 +419,7 @@ class Client(object):
         raise tornado.gen.Return(result)
 
     @tornado.gen.coroutine
-    def request(self, subject, payload, expected=1, cb=None):
+    def request(self, subject, payload, timeout=0.5, expected=1, cb=None):
         """
         Implements the request/response pattern via pub/sub
         using an ephemeral subscription which will be published
@@ -427,13 +432,73 @@ class Client(object):
           <<- MSG hello 2 _INBOX.gnKUg9bmAHANjxIsDiQsWO 5
 
         """
-        next_inbox = INBOX_PREFIX[:]
-        next_inbox.extend(self._nuid.next())
-        inbox = str(next_inbox)
-        sid = yield self.subscribe(inbox, _EMPTY_, cb)
-        yield self.auto_unsubscribe(sid, expected)
-        yield self.publish_request(subject, inbox, payload)
-        raise tornado.gen.Return(sid)
+        # If callback given then continue to use old style.
+        if cb is not None:
+            next_inbox = INBOX_PREFIX[:]
+            next_inbox.extend(self._nuid.next())
+            inbox = str(next_inbox)
+            sid = yield self.subscribe(inbox, _EMPTY_, cb)
+            yield self.auto_unsubscribe(sid, expected)
+            yield self.publish_request(subject, inbox, payload)
+            raise tornado.gen.Return(sid)
+
+        if self._resp_sub_prefix is None:
+            self._resp_map = {}
+
+            # Create a prefix and single wildcard subscription once.
+            self._resp_sub_prefix = str(INBOX_PREFIX[:])
+            self._resp_sub_prefix += self._nuid.next()
+            self._resp_sub_prefix += b'.'
+            resp_mux_subject = str(self._resp_sub_prefix[:])
+            resp_mux_subject += b'*'
+            sub = Subscription(subject=str(resp_mux_subject))
+
+            # FIXME: Allow setting pending limits for responses mux subscription.
+            sub.pending_msgs_limit = DEFAULT_SUB_PENDING_MSGS_LIMIT
+            sub.pending_bytes_limit = DEFAULT_SUB_PENDING_BYTES_LIMIT
+            sub.pending_queue = tornado.queues.Queue(
+                maxsize=sub.pending_msgs_limit,
+                )
+
+            # Single task for handling the requests
+            @tornado.gen.coroutine
+            def wait_for_msgs():
+                while True:
+                    msg = yield sub.pending_queue.get()
+                    token = msg.subject[INBOX_PREFIX_LEN:]
+                    try:
+                        fut = self._resp_map[token]
+                        fut.set_result(msg)
+                        del self._resp_map[token]
+                    except KeyError:
+                        # Future already handled so drop any extra
+                        # responses which may have made it.
+                        continue
+
+            wait_for_msgs.sub = sub
+            sub.wait_for_msgs_task = self._loop.spawn_callback(wait_for_msgs)
+
+            # Store the subscription in the subscriptions map,
+            # then send the protocol commands to the server.
+            self._ssid += 1
+            sid = self._ssid
+            self._subs[sid] = sub
+
+            # Send SUB command...
+            sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(
+                ), _SPC_, ("%d" % sid).encode(), _CRLF_])
+            yield self.send_command(sub_cmd)
+            yield self._flush_pending()
+
+        # Use a new NUID for the token inbox and then use the future.
+        token = self._nuid.next()
+        inbox = self._resp_sub_prefix[:]
+        inbox.extend(token)
+        future = tornado.concurrent.Future()
+        self._resp_map[token.decode()] = future
+        yield self.publish_request(subject, str(inbox), payload)
+        msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+        raise tornado.gen.Return(msg)
 
     @tornado.gen.coroutine
     def timed_request(self, subject, payload, timeout=0.5):
