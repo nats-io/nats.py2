@@ -18,8 +18,9 @@ import tornado.gen
 import time
 import ssl
 from datetime import datetime
-from nats.io.utils  import new_inbox
+from nats.io.utils import new_inbox
 from nats.io.client import Client as NATS
+
 
 @tornado.gen.coroutine
 def main():
@@ -33,10 +34,10 @@ def main():
         "tls": {
             "cert_reqs": ssl.CERT_REQUIRED,
             "ca_certs": "./tests/configs/certs/ca.pem",
-            "keyfile":  "./tests/configs/certs/client-key.pem",
+            "keyfile": "./tests/configs/certs/client-key.pem",
             "certfile": "./tests/configs/certs/client-cert.pem"
-          }
         }
+    }
     yield nc.connect(**options)
 
     def discover(msg=None):
@@ -63,7 +64,8 @@ def main():
 
     try:
         # Expect a single request and timeout after 500 ms
-        response = yield nc.timed_request("help", "Hi, need help!", timeout=0.500)
+        response = yield nc.timed_request(
+            "help", "Hi, need help!", timeout=0.500)
         print("[Response]: %s" % response.data)
     except tornado.gen.TimeoutError, e:
         print("Timeout! Need to retry...")
@@ -89,6 +91,7 @@ def main():
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
         print("Timeout! Roundtrip too slow...")
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)

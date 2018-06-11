@@ -29,9 +29,11 @@ def new_inbox():
     Generates a unique _INBOX subject which can be used
     for publishing and receiving events.
     """
-    return ''.join([INBOX_PREFIX,
-                    hex_rand(0x10),
-                    hex_rand(0x10),
-                    hex_rand(0x10),
-                    hex_rand(0x10),
-                    hex_rand(0x24)])
+    return ''.join([
+        INBOX_PREFIX,
+        hex_rand(0x10),
+        hex_rand(0x10),
+        hex_rand(0x10),
+        hex_rand(0x10),
+        hex_rand(0x24)
+    ])

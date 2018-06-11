@@ -10,6 +10,7 @@ DEFAULT_MSG_SIZE = 16
 DEFAULT_BATCH_SIZE = 100
 HASH_MODULO = 1000
 
+
 def show_usage():
     message = """
 Usage: pub_sub_perf [options]
@@ -22,21 +23,27 @@ options:
     """
     print(message)
 
+
 def show_usage_and_die():
     show_usage()
     sys.exit(1)
 
+
 global received
 received = 0
+
 
 def close_cb():
     print("Closed connection to NATS")
 
+
 def disconnected_cb():
     print("Disconnected from NATS")
 
+
 def reconnected_cb():
     print("Reconnected to NATS")
+
 
 @tornado.gen.coroutine
 def main():
@@ -66,7 +73,7 @@ def main():
 
     # Make sure we're connected to a server first...
     nc = NATS()
-    try:    
+    try:
         yield nc.connect(**opts)
     except Exception, e:
         sys.stderr.write("ERROR: {0}".format(e))
@@ -102,12 +109,13 @@ def main():
     yield nc.flush()
 
     elapsed = time.time() - start
-    mbytes = "%.1f" % (((args.size * args.count)/elapsed) / (1024*1024))
+    mbytes = "%.1f" % (((args.size * args.count) / elapsed) / (1024 * 1024))
     print("\nTest completed : {0} msgs/sec sent ({1}) MB/sec\n".format(
-        args.count/elapsed,
-        mbytes))
-    print("Received {0} messages ({1} msgs/sec)".format(received, received/elapsed))
+        args.count / elapsed, mbytes))
+    print("Received {0} messages ({1} msgs/sec)".format(
+        received, received / elapsed))
     yield nc.close()
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)

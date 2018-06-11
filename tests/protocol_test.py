@@ -8,7 +8,6 @@ from nats.protocol.parser import *
 
 
 class MockNatsClient:
-
     def __init__(self):
         self._subs = {}
         self._pongs = []
@@ -42,7 +41,6 @@ class MockNatsClient:
 
 
 class ProtocolParserTest(tornado.testing.AsyncTestCase):
-
     @tornado.testing.gen_test
     def test_parse_ping(self):
         ps = Parser(MockNatsClient())
