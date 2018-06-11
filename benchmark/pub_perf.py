@@ -11,6 +11,7 @@ DEFAULT_MSG_SIZE = 16
 DEFAULT_BATCH_SIZE = 100
 HASH_MODULO = 1000
 
+
 def show_usage():
     message = """
 Usage: pub_perf [options]
@@ -23,9 +24,11 @@ options:
     """
     print(message)
 
+
 def show_usage_and_die():
     show_usage()
     sys.exit(1)
+
 
 @tornado.gen.coroutine
 def main():
@@ -45,7 +48,7 @@ def main():
     servers = args.servers
     if len(args.servers) < 1:
         servers = ["nats://127.0.0.1:4222"]
-    opts = { "servers": servers }
+    opts = {"servers": servers}
 
     # Make sure we're connected to a server first..
     nc = NATS()
@@ -78,11 +81,11 @@ def main():
     yield nc.flush()
 
     elapsed = time.time() - start
-    mbytes = "%.1f" % (((args.size * args.count)/elapsed) / (1024*1024))
+    mbytes = "%.1f" % (((args.size * args.count) / elapsed) / (1024 * 1024))
     print("\nTest completed : {0} msgs/sec ({1}) MB/sec\n".format(
-        args.count/elapsed,
-        mbytes))
+        args.count / elapsed, mbytes))
     yield nc.close()
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)

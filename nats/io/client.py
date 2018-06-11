@@ -33,42 +33,43 @@ from nats.io.nuid import NUID
 from nats.protocol.parser import *
 
 CONNECT_PROTO = b'{0} {1}{2}'
-PUB_PROTO     = b'{0} {1} {2} {3} {4}{5}{6}'
-SUB_PROTO     = b'{0} {1} {2} {3}{4}'
-UNSUB_PROTO   = b'{0} {1} {2}{3}'
+PUB_PROTO = b'{0} {1} {2} {3} {4}{5}{6}'
+SUB_PROTO = b'{0} {1} {2} {3}{4}'
+UNSUB_PROTO = b'{0} {1} {2}{3}'
 
-INFO_OP       = b'INFO'
-CONNECT_OP    = b'CONNECT'
-PUB_OP        = b'PUB'
-MSG_OP        = b'MSG'
-SUB_OP        = b'SUB'
-UNSUB_OP      = b'UNSUB'
-PING_OP       = b'PING'
-PONG_OP       = b'PONG'
-OK_OP         = b'+OK'
-ERR_OP        = b'-ERR'
-_CRLF_        = b'\r\n'
-_SPC_         = b' '
-_EMPTY_       = b''
+INFO_OP = b'INFO'
+CONNECT_OP = b'CONNECT'
+PUB_OP = b'PUB'
+MSG_OP = b'MSG'
+SUB_OP = b'SUB'
+UNSUB_OP = b'UNSUB'
+PING_OP = b'PING'
+PONG_OP = b'PONG'
+OK_OP = b'+OK'
+ERR_OP = b'-ERR'
+_CRLF_ = b'\r\n'
+_SPC_ = b' '
+_EMPTY_ = b''
 
-PING_PROTO    = b'{0}{1}'.format(PING_OP, _CRLF_)
-PONG_PROTO    = b'{0}{1}'.format(PONG_OP, _CRLF_)
+PING_PROTO = b'{0}{1}'.format(PING_OP, _CRLF_)
+PONG_PROTO = b'{0}{1}'.format(PONG_OP, _CRLF_)
 
 # Defaults
-DEFAULT_PING_INTERVAL     = 120 # seconds
-MAX_OUTSTANDING_PINGS     = 2
-MAX_RECONNECT_ATTEMPTS    = 60
-RECONNECT_TIME_WAIT       = 2   # seconds
-DEFAULT_CONNECT_TIMEOUT   = 2   # seconds
+DEFAULT_PING_INTERVAL = 120  # seconds
+MAX_OUTSTANDING_PINGS = 2
+MAX_RECONNECT_ATTEMPTS = 60
+RECONNECT_TIME_WAIT = 2  # seconds
+DEFAULT_CONNECT_TIMEOUT = 2  # seconds
 
-DEFAULT_READ_BUFFER_SIZE  = 1024 * 1024 * 10
+DEFAULT_READ_BUFFER_SIZE = 1024 * 1024 * 10
 DEFAULT_WRITE_BUFFER_SIZE = None
-DEFAULT_READ_CHUNK_SIZE   = 32768 * 2
-DEFAULT_PENDING_SIZE      = 1024 * 1024
-DEFAULT_MAX_PAYLOAD_SIZE  = 1048576
+DEFAULT_READ_CHUNK_SIZE = 32768 * 2
+DEFAULT_PENDING_SIZE = 1024 * 1024
+DEFAULT_MAX_PAYLOAD_SIZE = 1048576
 
 PROTOCOL = 1
 INBOX_PREFIX = bytearray(b'_INBOX.')
+
 
 class Client(object):
     """
@@ -101,10 +102,10 @@ class Client(object):
         self._pending_size = 0
         self._loop = None
         self.stats = {
-            'in_msgs':    0,
-            'out_msgs':   0,
-            'in_bytes':   0,
-            'out_bytes':  0,
+            'in_msgs': 0,
+            'out_msgs': 0,
+            'in_bytes': 0,
+            'out_bytes': 0,
             'reconnects': 0,
             'errors_received': 0
         }
@@ -154,8 +155,7 @@ class Client(object):
                 connect_timeout=DEFAULT_CONNECT_TIMEOUT,
                 max_reconnect_attempts=MAX_RECONNECT_ATTEMPTS,
                 reconnect_time_wait=RECONNECT_TIME_WAIT,
-                tls=None
-                ):
+                tls=None):
         """
         Establishes a connection to a NATS server.
 
@@ -213,8 +213,10 @@ class Client(object):
                 # Check when was the last attempt and back off before reconnecting
                 if s.last_attempt is not None:
                     now = time.time()
-                    if (now - s.last_attempt) < self.options["reconnect_time_wait"]:
-                        yield tornado.gen.sleep(self.options["reconnect_time_wait"])
+                    if (now - s.last_attempt
+                        ) < self.options["reconnect_time_wait"]:
+                        yield tornado.gen.sleep(
+                            self.options["reconnect_time_wait"])
 
                 # Mark that we have attempted to connect
                 s.reconnects += 1
@@ -249,9 +251,7 @@ class Client(object):
 
         # Prepare the ping pong interval.
         self._ping_timer = tornado.ioloop.PeriodicCallback(
-            self._send_ping,
-            self.options["ping_interval"] * 1000
-        )
+            self._send_ping, self.options["ping_interval"] * 1000)
         self._ping_timer.start()
 
     @tornado.gen.coroutine
@@ -275,8 +275,7 @@ class Client(object):
         # Connect to server with a deadline
         future = self.io.connect((s.uri.hostname, s.uri.port))
         yield tornado.gen.with_timeout(
-            timedelta(seconds=self.options["connect_timeout"]),
-            future)
+            timedelta(seconds=self.options["connect_timeout"]), future)
 
     @tornado.gen.coroutine
     def _send_ping(self, future=None):
@@ -299,10 +298,10 @@ class Client(object):
 
         '''
         options = {
-            "verbose":  self.options["verbose"],
+            "verbose": self.options["verbose"],
             "pedantic": self.options["pedantic"],
-            "lang":     __lang__,
-            "version":  __version__,
+            "lang": __lang__,
+            "version": __version__,
             "protocol": PROTOCOL
         }
         if "auth_required" in self._server_info:
@@ -337,8 +336,11 @@ class Client(object):
     @tornado.gen.coroutine
     def _publish(self, subject, reply, payload, payload_size):
         payload_size_bytes = ("%d" % payload_size).encode()
-        pub_cmd = b''.join([PUB_OP, _SPC_, subject.encode(
-        ), _SPC_, reply, _SPC_, payload_size_bytes, _CRLF_, payload, _CRLF_])
+        pub_cmd = b''.join([
+            PUB_OP, _SPC_,
+            subject.encode(), _SPC_, reply, _SPC_, payload_size_bytes, _CRLF_,
+            payload, _CRLF_
+        ])
         self.stats['out_msgs'] += 1
         self.stats['out_bytes'] += payload_size
         yield self.send_command(pub_cmd)
@@ -400,7 +402,8 @@ class Client(object):
         future = tornado.concurrent.Future()
         yield self._send_ping(future)
         try:
-            result = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+            result = yield tornado.gen.with_timeout(
+                timedelta(seconds=timeout), future)
         except tornado.gen.TimeoutError:
             # Set the future to False so it can be ignored in _process_pong.
             future.set_result(False)
@@ -448,14 +451,22 @@ class Client(object):
         next_inbox.extend(self._nuid.next())
         inbox = str(next_inbox)
         future = tornado.concurrent.Future()
-        sid = yield self.subscribe(subject=inbox, queue=_EMPTY_, cb=None, future=future, max_msgs=1)
+        sid = yield self.subscribe(
+            subject=inbox, queue=_EMPTY_, cb=None, future=future, max_msgs=1)
         yield self.auto_unsubscribe(sid, 1)
         yield self.publish_request(subject, inbox, payload)
-        msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+        msg = yield tornado.gen.with_timeout(
+            timedelta(seconds=timeout), future)
         raise tornado.gen.Return(msg)
 
     @tornado.gen.coroutine
-    def subscribe(self, subject="", queue="", cb=None, future=None, max_msgs=0, is_async=False):
+    def subscribe(self,
+                  subject="",
+                  queue="",
+                  cb=None,
+                  future=None,
+                  max_msgs=0,
+                  is_async=False):
         """
         Sends a SUB command to the server. Takes a queue parameter which can be used
         in case of distributed queues or left empty if it is not the case, and a callback
@@ -521,8 +532,11 @@ class Client(object):
         """
         Generates a SUB command given a Subscription and the subject sequence id.
         """
-        sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(
-        ), _SPC_, sub.queue.encode(), _SPC_, ("%d" % ssid).encode(), _CRLF_])
+        sub_cmd = b''.join([
+            SUB_OP, _SPC_,
+            sub.subject.encode(), _SPC_,
+            sub.queue.encode(), _SPC_, ("%d" % ssid).encode(), _CRLF_
+        ])
         yield self.send_command(sub_cmd)
         yield self._flush_pending()
 
@@ -597,7 +611,8 @@ class Client(object):
             else:
                 # Call it and take the possible future in the loop.
                 maybe_future = sub.cb(msg)
-                if maybe_future is not None and type(maybe_future) is tornado.concurrent.Future:
+                if maybe_future is not None and type(
+                        maybe_future) is tornado.concurrent.Future:
                     yield maybe_future
         elif sub.future is not None:
             sub.future.set_result(msg)
@@ -629,9 +644,7 @@ class Client(object):
             # Rewrap using a TLS connection, can't do handshake on connect
             # as the socket is non blocking.
             self._socket = ssl.wrap_socket(
-                self._socket,
-                do_handshake_on_connect=False,
-                **tls_opts)
+                self._socket, do_handshake_on_connect=False, **tls_opts)
 
             # Use the TLS stream instead from now
             self.io = tornado.iostream.SSLIOStream(
@@ -653,16 +666,18 @@ class Client(object):
         yield self.io.write(PING_PROTO)
 
         # FIXME: Add readline timeout for these.
-        next_op = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
+        next_op = yield self.io.read_until(
+            _CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
         if self.options["verbose"] and OK_OP in next_op:
-            next_op = yield self.io.read_until(_CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
+            next_op = yield self.io.read_until(
+                _CRLF_, max_bytes=MAX_CONTROL_LINE_SIZE)
         if ERR_OP in next_op:
             err_line = next_op.decode()
             _, err_msg = err_line.split(_SPC_, 1)
             # FIXME: Maybe handling could be more special here,
             # checking for ErrAuthorization for example.
             # yield from self._process_err(err_msg)
-            raise NatsError("nats: "+err_msg.rstrip('\r\n'))
+            raise NatsError("nats: " + err_msg.rstrip('\r\n'))
 
         if PONG_PROTO in next_op:
             self._status = Client.CONNECTED
@@ -714,7 +729,9 @@ class Client(object):
 
         s = None
         for server in self._server_pool:
-            if self.options["max_reconnect_attempts"] > 0 and (server.reconnects > self.options["max_reconnect_attempts"]):
+            if self.options["max_reconnect_attempts"] > 0 and (
+                    server.reconnects >
+                    self.options["max_reconnect_attempts"]):
                 continue
             else:
                 s = server
@@ -780,14 +797,13 @@ class Client(object):
 
             # Replay all the subscriptions in case there were some.
             for ssid, sub in self._subs.items():
-                sub_cmd = SUB_PROTO.format(
-                    SUB_OP, sub.subject, sub.queue, ssid, _CRLF_)
+                sub_cmd = SUB_PROTO.format(SUB_OP, sub.subject, sub.queue,
+                                           ssid, _CRLF_)
                 yield self.io.write(sub_cmd)
 
             # Restart the ping pong interval callback.
             self._ping_timer = tornado.ioloop.PeriodicCallback(
-                self._send_ping,
-                self.options["ping_interval"] * 1000)
+                self._send_ping, self.options["ping_interval"] * 1000)
             self._ping_timer.start()
             self._err = None
             self._pings_outstanding = 0
@@ -820,8 +836,10 @@ class Client(object):
             # Check when was the last attempt and back off before reconnecting
             if s.last_attempt is not None:
                 now = time.time()
-                if (now - s.last_attempt) < self.options["reconnect_time_wait"]:
-                    yield tornado.gen.sleep(self.options["reconnect_time_wait"])
+                if (now -
+                        s.last_attempt) < self.options["reconnect_time_wait"]:
+                    yield tornado.gen.sleep(
+                        self.options["reconnect_time_wait"])
 
             s.reconnects += 1
             s.last_attempt = time.time()
@@ -942,7 +960,10 @@ class Client(object):
                 break
 
             try:
-                yield self.io.read_bytes(DEFAULT_READ_CHUNK_SIZE, streaming_callback=self._ps.parse, partial=True)
+                yield self.io.read_bytes(
+                    DEFAULT_READ_CHUNK_SIZE,
+                    streaming_callback=self._ps.parse,
+                    partial=True)
             except tornado.iostream.StreamClosedError as e:
                 self._err = e
                 if self._error_cb is not None and not self.is_reconnecting and not self.is_closed:
@@ -963,7 +984,8 @@ class Client(object):
                 yield self._flush_queue.get()
 
                 # Check whether we should bail first
-                if not self.is_connected or self.is_connecting or self.io.closed():
+                if not self.is_connected or self.is_connecting or self.io.closed(
+                ):
                     break
 
                 # Flush only when we actually have something in buffer...
@@ -998,15 +1020,15 @@ class Client(object):
 
 
 class Subscription():
-
-    def __init__(self,
-                 subject='',
-                 queue='',
-                 cb=None,
-                 is_async=False,
-                 future=None,
-                 max_msgs=0,
-                 ):
+    def __init__(
+            self,
+            subject='',
+            queue='',
+            cb=None,
+            is_async=False,
+            future=None,
+            max_msgs=0,
+    ):
         self.subject = subject
         self.queue = queue
         self.cb = cb
@@ -1017,13 +1039,13 @@ class Subscription():
 
 
 class Msg(object):
-
-    def __init__(self,
-                 subject='',
-                 reply='',
-                 data=b'',
-                 sid=0,
-                 ):
+    def __init__(
+            self,
+            subject='',
+            reply='',
+            data=b'',
+            sid=0,
+    ):
         self.subject = subject
         self.reply = reply
         self.data = data

@@ -19,6 +19,7 @@ from datetime import timedelta
 from nats.io.client import Client as NATS
 from nats.io.errors import ErrConnectionClosed
 
+
 @tornado.gen.coroutine
 def main():
     nc = NATS()
@@ -30,8 +31,8 @@ def main():
             "nats://secret1:pass1@127.0.0.1:4222",
             "nats://secret2:pass2@127.0.0.1:4223",
             "nats://secret3:pass3@127.0.0.1:4224"
-            ]
-        }
+        ]
+    }
 
     # Error callback takes the error type as param.
     def error_cb(e):
@@ -50,7 +51,7 @@ def main():
     # protocol error message from the server.
     options["error_cb"] = error_cb
 
-    # Called when we are not connected anymore to the NATS cluster.    
+    # Called when we are not connected anymore to the NATS cluster.
     options["close_cb"] = close_cb
 
     # Called whenever we become disconnected from a NATS server.
@@ -77,6 +78,7 @@ def main():
         yield nc.publish("ping", "ping")
     except ErrConnectionClosed:
         print("No longer connected to NATS cluster.")
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)

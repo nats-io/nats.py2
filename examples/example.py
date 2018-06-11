@@ -17,15 +17,16 @@ import tornado.ioloop
 import tornado.gen
 import time
 from datetime import datetime
-from nats.io.utils  import new_inbox
+from nats.io.utils import new_inbox
 from nats.io.client import Client as NATS
+
 
 @tornado.gen.coroutine
 def main():
     nc = NATS()
 
     # Establish connection to the server.
-    options = { "verbose": True, "servers": ["nats://127.0.0.1:4222"] }
+    options = {"verbose": True, "servers": ["nats://127.0.0.1:4222"]}
     yield nc.connect(**options)
 
     def discover(msg=None):
@@ -52,7 +53,8 @@ def main():
 
     try:
         # Expect a single request and timeout after 500 ms
-        response = yield nc.timed_request("help", "Hi, need help!", timeout=0.500)
+        response = yield nc.timed_request(
+            "help", "Hi, need help!", timeout=0.500)
         print("[Response]: %s" % response.data)
     except tornado.gen.TimeoutError, e:
         print("Timeout! Need to retry...")
@@ -78,6 +80,7 @@ def main():
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
         print("Timeout! Roundtrip too slow...")
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)

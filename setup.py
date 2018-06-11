@@ -10,7 +10,8 @@ setup(
     name='nats-client',
     version=__version__,
     description='NATS client for Python 2',
-    long_description='Tornado based Python client for NATS, a lightweight, high-performance cloud native messaging system',
+    long_description=
+    'Tornado based Python client for NATS, a lightweight, high-performance cloud native messaging system',
     url='https://github.com/nats-io/python-nats',
     author='Waldemar Quevedo',
     author_email='wally@synadia.com',
@@ -21,5 +22,4 @@ setup(
     classifiers=[
         'Intended Audience :: Developers',
         'Programming Language :: Python',
-    ]
-)
+    ])

@@ -10,6 +10,7 @@ DEFAULT_MSG_SIZE = 16
 DEFAULT_BATCH_SIZE = 100
 HASH_MODULO = 1000
 
+
 def show_usage():
     message = """
 Usage: sub_perf [options]
@@ -21,12 +22,15 @@ options:
     """
     print(message)
 
+
 def show_usage_and_die():
     show_usage()
     sys.exit(1)
 
+
 global received
 received = 0
+
 
 @tornado.gen.coroutine
 def main():
@@ -40,7 +44,7 @@ def main():
     servers = args.servers
     if len(args.servers) < 1:
         servers = ["nats://127.0.0.1:4222"]
-    opts = { "servers": servers }
+    opts = {"servers": servers}
 
     # Make sure we're connected to a server first...
     nc = NATS()
@@ -66,14 +70,16 @@ def main():
     elif args.subtype == 'async':
         yield nc.subscribe_async(args.subject, cb=handler)
     else:
-        sys.stderr.write("ERROR: Unsupported type of subscription {0}".format(e))
+        sys.stderr.write(
+            "ERROR: Unsupported type of subscription {0}".format(e))
         show_usage_and_die()
 
     # Start the benchmark
     start = time.time()
     to_send = args.count
 
-    print("Waiting for {0} messages on [{1}]...".format(args.count, args.subject))
+    print("Waiting for {0} messages on [{1}]...".format(
+        args.count, args.subject))
     while received < args.count:
         # Minimal pause in between batches sent to server
         yield tornado.gen.sleep(0.1)
@@ -82,9 +88,12 @@ def main():
     yield nc.flush()
 
     elapsed = time.time() - start
-    print("\nTest completed : {0} msgs/sec sent \n".format(args.count/elapsed))
-    print("Received {0} messages ({1} msgs/sec)".format(received, received/elapsed))
+    print("\nTest completed : {0} msgs/sec sent \n".format(
+        args.count / elapsed))
+    print("Received {0} messages ({1} msgs/sec)".format(
+        received, received / elapsed))
     yield nc.close()
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
