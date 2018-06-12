@@ -1076,6 +1076,55 @@ class ClientTest(tornado.testing.AsyncTestCase):
         nc = Client()
         yield nc._process_msg(387, 'some-subject', 'some-reply', [0, 1, 2])
 
+    @tornado.testing.gen_test
+    def test_subscribe_async_process_messages_concurrently(self):
+        nc = Client()
+
+        yield nc.connect(io_loop=self.io_loop)
+
+        @tornado.gen.coroutine
+        def sub_foo_handler(msg):
+            msgs = sub_foo_handler.msgs
+            msgs.append(msg)
+
+            # Should not block other subscriptions processing
+            # the messages in parallel...
+            yield tornado.gen.sleep(1)
+
+        sub_foo_handler.msgs = []
+        yield nc.subscribe("foo", cb=sub_foo_handler)
+
+        @tornado.gen.coroutine
+        def sub_bar_handler(msg):
+            nc = sub_bar_handler.nc
+            msgs = sub_bar_handler.msgs
+            msgs.append(msg)
+            yield nc.publish(msg.reply, "OK!")
+
+        sub_bar_handler.nc = nc
+        sub_bar_handler.msgs = []
+        yield nc.subscribe("bar", cb=sub_bar_handler)
+
+        @tornado.gen.coroutine
+        def sub_quux_handler(msg):
+            msgs = sub_quux_handler.msgs
+            msgs.append(msg)
+        sub_quux_handler.msgs = []
+        yield nc.subscribe("quux", cb=sub_quux_handler)
+
+        yield nc.publish("foo", "hello")
+        for i in range(0, 10):
+            yield nc.publish("quux", "test-{}".format(i))
+
+        response = yield nc.request("bar", b'help')
+        self.assertEqual(response.data, 'OK!')
+
+        yield tornado.gen.sleep(0.2)
+        self.assertEqual(len(sub_foo_handler.msgs), 1)
+        self.assertEqual(len(sub_bar_handler.msgs), 1)
+        self.assertEqual(len(sub_quux_handler.msgs), 10)
+
+        yield nc.close()
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
     def setUp(self):
