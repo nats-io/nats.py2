@@ -1126,6 +1126,111 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
         yield nc.close()
 
+    @tornado.testing.gen_test
+    def test_subscribe_slow_consumer_pending_msgs_limit(self):
+        nc = Client()
+
+        def error_cb(err):
+            error_cb.errors.append(err)
+        error_cb.errors = []
+
+        yield nc.connect(io_loop=self.io_loop,
+                         error_cb=error_cb)
+
+        @tornado.gen.coroutine
+        def sub_hello_handler(msg):
+            msgs = sub_hello_handler.msgs
+            msgs.append(msg)
+
+            if len(msgs) == 5:
+                yield tornado.gen.sleep(0.5)
+
+        sub_hello_handler.msgs = []
+        yield nc.subscribe("hello", cb=sub_hello_handler, pending_msgs_limit=5)
+
+        for i in range(0, 20):
+            yield nc.publish("hello", "test-{}".format(i))
+        yield nc.flush(1)
+
+        # Wait a bit for subscriber to recover
+        yield tornado.gen.sleep(0.5)
+
+        for i in range(0, 3):
+            yield nc.publish("hello", "ok-{}".format(i))
+        yield nc.flush(1)
+
+        # Wait a bit to receive the final messages
+        yield tornado.gen.sleep(0.5)
+
+        # There would be a few async slow consumer errors
+        errors = error_cb.errors
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(type(errors[0]) is ErrSlowConsumer)
+
+        # We should have received some messages and dropped others,
+        # but definitely got the last 3 messages after recovering
+        # from the slow consumer error.
+        msgs = sub_hello_handler.msgs
+        self.assertEqual(len(msgs), 13)
+
+        msgs = sub_hello_handler.msgs[-3:]
+        for i in range(0, 3):
+            self.assertEqual("ok-{}".format(i), msgs[i].data)
+        yield nc.close()
+
+    @tornado.testing.gen_test
+    def test_subscribe_slow_consumer_pending_bytes_limit(self):
+        nc = Client()
+
+        def error_cb(err):
+            error_cb.errors.append(err)
+        error_cb.errors = []
+
+        yield nc.connect(io_loop=self.io_loop,
+                         error_cb=error_cb)
+
+        @tornado.gen.coroutine
+        def sub_hello_handler(msg):
+            msgs = sub_hello_handler.msgs
+            msgs.append(msg)
+            sub_hello_handler.data += msg.data
+            if len(sub_hello_handler.data) == 10:
+                yield tornado.gen.sleep(0.5)
+
+        sub_hello_handler.msgs = []
+        sub_hello_handler.data = ''
+        yield nc.subscribe("hello", cb=sub_hello_handler, pending_bytes_limit=10)
+
+        for i in range(0, 20):
+            yield nc.publish("hello", "A")
+        yield nc.flush(1)
+
+        # Wait a bit for subscriber to recover
+        yield tornado.gen.sleep(1)
+
+        for i in range(0, 3):
+            yield nc.publish("hello", "B")
+        yield nc.flush(1)
+
+        # Wait a bit to receive the final messages
+        yield tornado.gen.sleep(1)
+
+        # There would be a few async slow consumer errors
+        errors = error_cb.errors
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(type(errors[0]) is ErrSlowConsumer)
+
+        # We should have received some messages and dropped others,
+        # but definitely got the last 3 messages after recovering
+        # from the slow consumer error.
+        msgs = sub_hello_handler.msgs
+        self.assertTrue(len(msgs) > 10 and len(msgs) != 23)
+
+        msgs = sub_hello_handler.msgs[-3:]
+        for i in range(0, 3):
+            self.assertEqual("B", msgs[i].data)
+        yield nc.close()
+
 class ClientAuthTest(tornado.testing.AsyncTestCase):
     def setUp(self):
         print("\n=== RUN {0}.{1}".format(self.__class__.__name__,
