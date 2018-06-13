@@ -704,8 +704,12 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.publish("foo", b'A')
         yield nc.publish("foo", b'B')
         yield tornado.gen.sleep(1)
+
+        sub = nc._subs[sid]
         yield nc.unsubscribe(sid)
         yield nc.flush()
+        self.assertEqual(sub.closed, True)
+
         yield nc.publish("foo", b'C')
         yield nc.publish("foo", b'D')
         self.assertEqual(2, len(log.records["foo"]))
@@ -737,7 +741,11 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.publish("foo", b'C')
         yield tornado.gen.sleep(1)
         self.assertEqual(3, len(log.records["foo"]))
+
+        sub = nc._subs[sid]        
         yield nc.unsubscribe(sid, 3)
+        self.assertEqual(sub.closed, True)
+
         yield nc.publish("foo", b'D')
         yield nc.flush()
         self.assertEqual(3, len(log.records["foo"]))
@@ -783,7 +791,16 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.subscribe(">", "", log.persist)
         yield nc.subscribe("help", "", c.respond)
         yield nc.request("help", "please", expected=2, cb=c.receive_responses)
+        
+        subs = []
+        for _, sub in nc._subs.items():
+            subs.append(sub)
+        self.assertEqual(len(subs), 3)
+
+        self.assertEqual(len(self.io_loop._callbacks), 4)
         yield tornado.gen.sleep(0.5)
+        self.assertEqual(len(nc._subs), 2)
+        self.assertEqual(len(self.io_loop._callbacks), 0)
 
         http = tornado.httpclient.AsyncHTTPClient()
         response = yield http.fetch(
@@ -808,6 +825,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertEqual('please', full_msg)
         self.assertEqual("ok:1", c.replies[0].data)
         self.assertEqual("ok:2", c.replies[1].data)
+        yield nc.close()
 
     @tornado.testing.gen_test
     def test_timed_request(self):

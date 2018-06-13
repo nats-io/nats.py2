@@ -483,7 +483,14 @@ class Client(object):
             @tornado.gen.coroutine
             def wait_for_msgs():
                 while True:
+                    sub = wait_for_msgs.sub
+                    if sub.closed:
+                        break
+
                     msg = yield sub.pending_queue.get()
+                    if msg is None:
+                        break
+
                     token = msg.subject[INBOX_PREFIX_LEN:]
                     try:
                         fut = self._resp_map[token]
@@ -495,12 +502,13 @@ class Client(object):
                         continue
 
             wait_for_msgs.sub = sub
-            sub.wait_for_msgs_task = self._loop.spawn_callback(wait_for_msgs)
+            self._loop.spawn_callback(wait_for_msgs)
 
             # Store the subscription in the subscriptions map,
             # then send the protocol commands to the server.
             self._ssid += 1
             sid = self._ssid
+            sub.sid = sid
             self._subs[sid] = sub
 
             # Send SUB command...
@@ -575,6 +583,7 @@ class Client(object):
             future=future,
             max_msgs=max_msgs,
             is_async=is_async,
+            sid=sid,
         )
         self._subs[sid] = sub
 
@@ -587,13 +596,23 @@ class Client(object):
 
             @tornado.gen.coroutine
             def wait_for_msgs():
-                sub = wait_for_msgs.sub
-                err_cb = wait_for_msgs.err_cb
-
                 while True:
+                    sub = wait_for_msgs.sub
+                    err_cb = wait_for_msgs.err_cb
+
                     try:
+                        sub = wait_for_msgs.sub
+                        if sub.closed:
+                            break
+                        
                         msg = yield sub.pending_queue.get()
+                        if msg is None:
+                            break
                         sub.pending_size -= len(msg.data)
+
+                        if sub.max_msgs > 0 and sub.received >= sub.max_msgs:
+                            # If we have hit the max for delivered msgs, remove sub.
+                            self._remove_subscription(sub)
 
                         # Invoke depending of type of handler.
                         if sub.is_async:
@@ -610,11 +629,16 @@ class Client(object):
                         # handler are async errors.
                         if err_cb is not None:
                             yield err_cb(e)
+                    finally:
+                        if sub.max_msgs > 0 and sub.received >= sub.max_msgs:
+                            # If we have hit the max for delivered msgs, remove sub.
+                            self._remove_subscription(sub)
+                            break
 
             # Bind the subscription and error cb if present
             wait_for_msgs.sub = sub
             wait_for_msgs.err_cb = self._error_cb
-            sub.wait_for_msgs_task = self._loop.spawn_callback(wait_for_msgs)
+            self._loop.spawn_callback(wait_for_msgs)
 
         elif future is not None:
             # Used to handle the single response from a request
