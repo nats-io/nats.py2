@@ -68,7 +68,7 @@ DEFAULT_PENDING_SIZE = 1024 * 1024
 DEFAULT_MAX_PAYLOAD_SIZE = 1048576
 
 # Default Pending Limits of Subscriptions
-DEFAULT_SUB_PENDING_MSGS_LIMIT  = 65536
+DEFAULT_SUB_PENDING_MSGS_LIMIT = 65536
 DEFAULT_SUB_PENDING_BYTES_LIMIT = 65536 * 1024
 
 PROTOCOL = 1
@@ -452,11 +452,12 @@ class Client(object):
             next_inbox = INBOX_PREFIX[:]
             next_inbox.extend(self._nuid.next())
             inbox = str(next_inbox)
-            sid = yield self.subscribe(inbox,
-                                       queue=_EMPTY_,
-                                       cb=cb,
-                                       max_msgs=expected,
-                                       )
+            sid = yield self.subscribe(
+                inbox,
+                queue=_EMPTY_,
+                cb=cb,
+                max_msgs=expected,
+            )
             yield self.auto_unsubscribe(sid, expected)
             yield self.publish_request(subject, inbox, payload)
             raise tornado.gen.Return(sid)
@@ -476,8 +477,7 @@ class Client(object):
             sub.pending_msgs_limit = DEFAULT_SUB_PENDING_MSGS_LIMIT
             sub.pending_bytes_limit = DEFAULT_SUB_PENDING_BYTES_LIMIT
             sub.pending_queue = tornado.queues.Queue(
-                maxsize=sub.pending_msgs_limit,
-                )
+                maxsize=sub.pending_msgs_limit)
 
             # Single task for handling the requests
             @tornado.gen.coroutine
@@ -512,8 +512,10 @@ class Client(object):
             self._subs[sid] = sub
 
             # Send SUB command...
-            sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(
-                ), _SPC_, ("%d" % sid).encode(), _CRLF_])
+            sub_cmd = b''.join([
+                SUB_OP, _SPC_,
+                sub.subject.encode(), _SPC_, ("%d" % sid).encode(), _CRLF_
+            ])
             yield self.send_command(sub_cmd)
             yield self._flush_pending()
 
@@ -524,7 +526,8 @@ class Client(object):
         future = tornado.concurrent.Future()
         self._resp_map[token.decode()] = future
         yield self.publish_request(subject, str(inbox), payload)
-        msg = yield tornado.gen.with_timeout(timedelta(seconds=timeout), future)
+        msg = yield tornado.gen.with_timeout(
+            timedelta(seconds=timeout), future)
         raise tornado.gen.Return(msg)
 
     @tornado.gen.coroutine
@@ -555,16 +558,17 @@ class Client(object):
         raise tornado.gen.Return(msg)
 
     @tornado.gen.coroutine
-    def subscribe(self,
-                  subject="",
-                  queue="",
-                  cb=None,
-                  future=None,
-                  max_msgs=0,
-                  is_async=False,
-                  pending_msgs_limit=DEFAULT_SUB_PENDING_MSGS_LIMIT,
-                  pending_bytes_limit=DEFAULT_SUB_PENDING_BYTES_LIMIT,
-                  ):
+    def subscribe(
+            self,
+            subject="",
+            queue="",
+            cb=None,
+            future=None,
+            max_msgs=0,
+            is_async=False,
+            pending_msgs_limit=DEFAULT_SUB_PENDING_MSGS_LIMIT,
+            pending_bytes_limit=DEFAULT_SUB_PENDING_BYTES_LIMIT,
+    ):
         """
         Sends a SUB command to the server. Takes a queue parameter
         which can be used in case of distributed queues or left empty
@@ -591,8 +595,7 @@ class Client(object):
             sub.pending_msgs_limit = pending_msgs_limit
             sub.pending_bytes_limit = pending_bytes_limit
             sub.pending_queue = tornado.queues.Queue(
-                maxsize=pending_msgs_limit,
-                )
+                maxsize=pending_msgs_limit)
 
             @tornado.gen.coroutine
             def wait_for_msgs():
@@ -604,7 +607,7 @@ class Client(object):
                         sub = wait_for_msgs.sub
                         if sub.closed:
                             break
-                        
+
                         msg = yield sub.pending_queue.get()
                         if msg is None:
                             break
@@ -646,8 +649,11 @@ class Client(object):
             sub.future = future
 
         # Send SUB command...
-        sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(
-        ), _SPC_, sub.queue.encode(), _SPC_, ("%d" % sid).encode(), _CRLF_])
+        sub_cmd = b''.join([
+            SUB_OP, _SPC_,
+            sub.subject.encode(), _SPC_,
+            sub.queue.encode(), _SPC_, ("%d" % sid).encode(), _CRLF_
+        ])
         yield self.send_command(sub_cmd)
         yield self._flush_pending()
         raise tornado.gen.Return(sid)
@@ -1080,7 +1086,7 @@ class Client(object):
             self.io.close()
 
         # Cleanup subscriptions since not reconnecting so no need
-        # to replay the subscriptions anymore.        
+        # to replay the subscriptions anymore.
         for ssid, sub in self._subs.items():
             self._subs.pop(ssid, None)
             self._remove_subscription(sub)
@@ -1233,15 +1239,17 @@ class Subscription():
         self.pending_size = 0
         self.closed = False
 
+
 class Msg(object):
     __slots__ = 'subject', 'reply', 'data', 'sid'
 
-    def __init__(self,
-                 subject='',
-                 reply='',
-                 data=b'',
-                 sid=0,
-        ):
+    def __init__(
+            self,
+            subject='',
+            reply='',
+            data=b'',
+            sid=0,
+    ):
         self.subject = subject
         self.reply = reply
         self.data = data
@@ -1253,7 +1261,8 @@ class Msg(object):
             self.subject,
             self.reply,
             self.data[:10].decode(),
-            )
+        )
+
 
 class Srv(object):
     """

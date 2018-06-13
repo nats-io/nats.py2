@@ -742,7 +742,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield tornado.gen.sleep(1)
         self.assertEqual(3, len(log.records["foo"]))
 
-        sub = nc._subs[sid]        
+        sub = nc._subs[sid]
         yield nc.unsubscribe(sid, 3)
         self.assertEqual(sub.closed, True)
 
@@ -791,7 +791,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.subscribe(">", "", log.persist)
         yield nc.subscribe("help", "", c.respond)
         yield nc.request("help", "please", expected=2, cb=c.receive_responses)
-        
+
         subs = []
         for _, sub in nc._subs.items():
             subs.append(sub)
@@ -1127,6 +1127,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         def sub_quux_handler(msg):
             msgs = sub_quux_handler.msgs
             msgs.append(msg)
+
         sub_quux_handler.msgs = []
         yield nc.subscribe("quux", cb=sub_quux_handler)
 
@@ -1150,10 +1151,10 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
         def error_cb(err):
             error_cb.errors.append(err)
+
         error_cb.errors = []
 
-        yield nc.connect(io_loop=self.io_loop,
-                         error_cb=error_cb)
+        yield nc.connect(io_loop=self.io_loop, error_cb=error_cb)
 
         @tornado.gen.coroutine
         def sub_hello_handler(msg):
@@ -1202,10 +1203,10 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
         def error_cb(err):
             error_cb.errors.append(err)
+
         error_cb.errors = []
 
-        yield nc.connect(io_loop=self.io_loop,
-                         error_cb=error_cb)
+        yield nc.connect(io_loop=self.io_loop, error_cb=error_cb)
 
         @tornado.gen.coroutine
         def sub_hello_handler(msg):
@@ -1217,7 +1218,8 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
         sub_hello_handler.msgs = []
         sub_hello_handler.data = ''
-        yield nc.subscribe("hello", cb=sub_hello_handler, pending_bytes_limit=10)
+        yield nc.subscribe(
+            "hello", cb=sub_hello_handler, pending_bytes_limit=10)
 
         for i in range(0, 20):
             yield nc.publish("hello", "A")
@@ -1255,10 +1257,10 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
         def error_cb(err):
             error_cb.errors.append(err)
+
         error_cb.errors = []
 
-        yield nc.connect(io_loop=self.io_loop,
-                         error_cb=error_cb)
+        yield nc.connect(io_loop=self.io_loop, error_cb=error_cb)
 
         @tornado.gen.coroutine
         def sub_hello_handler(msg):
@@ -1268,8 +1270,8 @@ class ClientTest(tornado.testing.AsyncTestCase):
         sub_hello_handler.msgs = []
         yield nc.subscribe("hello.foo.bar", cb=sub_hello_handler)
         yield nc.subscribe("hello.*.*", cb=sub_hello_handler)
-        yield nc.subscribe("hello.>", cb=sub_hello_handler)        
-        yield nc.subscribe(">", cb=sub_hello_handler)        
+        yield nc.subscribe("hello.>", cb=sub_hello_handler)
+        yield nc.subscribe(">", cb=sub_hello_handler)
 
         self.assertEqual(len(self.io_loop._callbacks), 5)
         for i in range(0, 10):
@@ -1296,6 +1298,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
 
         for sub in subs:
             self.assertEqual(sub.closed, True)
+
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
     def setUp(self):
