@@ -704,8 +704,12 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.publish("foo", b'A')
         yield nc.publish("foo", b'B')
         yield tornado.gen.sleep(1)
+
+        sub = nc._subs[sid]
         yield nc.unsubscribe(sid)
         yield nc.flush()
+        self.assertEqual(sub.closed, True)
+
         yield nc.publish("foo", b'C')
         yield nc.publish("foo", b'D')
         self.assertEqual(2, len(log.records["foo"]))
@@ -737,7 +741,11 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.publish("foo", b'C')
         yield tornado.gen.sleep(1)
         self.assertEqual(3, len(log.records["foo"]))
+
+        sub = nc._subs[sid]
         yield nc.unsubscribe(sid, 3)
+        self.assertEqual(sub.closed, True)
+
         yield nc.publish("foo", b'D')
         yield nc.flush()
         self.assertEqual(3, len(log.records["foo"]))
@@ -783,7 +791,16 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.subscribe(">", "", log.persist)
         yield nc.subscribe("help", "", c.respond)
         yield nc.request("help", "please", expected=2, cb=c.receive_responses)
+
+        subs = []
+        for _, sub in nc._subs.items():
+            subs.append(sub)
+        self.assertEqual(len(subs), 3)
+
+        self.assertEqual(len(self.io_loop._callbacks), 4)
         yield tornado.gen.sleep(0.5)
+        self.assertEqual(len(nc._subs), 2)
+        self.assertEqual(len(self.io_loop._callbacks), 0)
 
         http = tornado.httpclient.AsyncHTTPClient()
         response = yield http.fetch(
@@ -808,6 +825,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertEqual('please', full_msg)
         self.assertEqual("ok:1", c.replies[0].data)
         self.assertEqual("ok:2", c.replies[1].data)
+        yield nc.close()
 
     @tornado.testing.gen_test
     def test_timed_request(self):
@@ -1075,6 +1093,211 @@ class ClientTest(tornado.testing.AsyncTestCase):
     def test_process_message_subscription_not_present(self):
         nc = Client()
         yield nc._process_msg(387, 'some-subject', 'some-reply', [0, 1, 2])
+
+    @tornado.testing.gen_test
+    def test_subscribe_async_process_messages_concurrently(self):
+        nc = Client()
+
+        yield nc.connect(io_loop=self.io_loop)
+
+        @tornado.gen.coroutine
+        def sub_foo_handler(msg):
+            msgs = sub_foo_handler.msgs
+            msgs.append(msg)
+
+            # Should not block other subscriptions processing
+            # the messages in parallel...
+            yield tornado.gen.sleep(1)
+
+        sub_foo_handler.msgs = []
+        yield nc.subscribe("foo", cb=sub_foo_handler)
+
+        @tornado.gen.coroutine
+        def sub_bar_handler(msg):
+            nc = sub_bar_handler.nc
+            msgs = sub_bar_handler.msgs
+            msgs.append(msg)
+            yield nc.publish(msg.reply, "OK!")
+
+        sub_bar_handler.nc = nc
+        sub_bar_handler.msgs = []
+        yield nc.subscribe("bar", cb=sub_bar_handler)
+
+        @tornado.gen.coroutine
+        def sub_quux_handler(msg):
+            msgs = sub_quux_handler.msgs
+            msgs.append(msg)
+
+        sub_quux_handler.msgs = []
+        yield nc.subscribe("quux", cb=sub_quux_handler)
+
+        yield nc.publish("foo", "hello")
+        for i in range(0, 10):
+            yield nc.publish("quux", "test-{}".format(i))
+
+        response = yield nc.request("bar", b'help')
+        self.assertEqual(response.data, 'OK!')
+
+        yield tornado.gen.sleep(0.2)
+        self.assertEqual(len(sub_foo_handler.msgs), 1)
+        self.assertEqual(len(sub_bar_handler.msgs), 1)
+        self.assertEqual(len(sub_quux_handler.msgs), 10)
+
+        yield nc.close()
+
+    @tornado.testing.gen_test
+    def test_subscribe_slow_consumer_pending_msgs_limit(self):
+        nc = Client()
+
+        def error_cb(err):
+            error_cb.errors.append(err)
+
+        error_cb.errors = []
+
+        yield nc.connect(io_loop=self.io_loop, error_cb=error_cb)
+
+        @tornado.gen.coroutine
+        def sub_hello_handler(msg):
+            msgs = sub_hello_handler.msgs
+            msgs.append(msg)
+
+            if len(msgs) == 5:
+                yield tornado.gen.sleep(0.5)
+
+        sub_hello_handler.msgs = []
+        yield nc.subscribe("hello", cb=sub_hello_handler, pending_msgs_limit=5)
+
+        for i in range(0, 20):
+            yield nc.publish("hello", "test-{}".format(i))
+        yield nc.flush(1)
+
+        # Wait a bit for subscriber to recover
+        yield tornado.gen.sleep(0.5)
+
+        for i in range(0, 3):
+            yield nc.publish("hello", "ok-{}".format(i))
+        yield nc.flush(1)
+
+        # Wait a bit to receive the final messages
+        yield tornado.gen.sleep(0.5)
+
+        # There would be a few async slow consumer errors
+        errors = error_cb.errors
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(type(errors[0]) is ErrSlowConsumer)
+
+        # We should have received some messages and dropped others,
+        # but definitely got the last 3 messages after recovering
+        # from the slow consumer error.
+        msgs = sub_hello_handler.msgs
+        self.assertEqual(len(msgs), 13)
+
+        msgs = sub_hello_handler.msgs[-3:]
+        for i in range(0, 3):
+            self.assertEqual("ok-{}".format(i), msgs[i].data)
+        yield nc.close()
+
+    @tornado.testing.gen_test
+    def test_subscribe_slow_consumer_pending_bytes_limit(self):
+        nc = Client()
+
+        def error_cb(err):
+            error_cb.errors.append(err)
+
+        error_cb.errors = []
+
+        yield nc.connect(io_loop=self.io_loop, error_cb=error_cb)
+
+        @tornado.gen.coroutine
+        def sub_hello_handler(msg):
+            msgs = sub_hello_handler.msgs
+            msgs.append(msg)
+            sub_hello_handler.data += msg.data
+            if len(sub_hello_handler.data) == 10:
+                yield tornado.gen.sleep(0.5)
+
+        sub_hello_handler.msgs = []
+        sub_hello_handler.data = ''
+        yield nc.subscribe(
+            "hello", cb=sub_hello_handler, pending_bytes_limit=10)
+
+        for i in range(0, 20):
+            yield nc.publish("hello", "A")
+        yield nc.flush(1)
+
+        # Wait a bit for subscriber to recover
+        yield tornado.gen.sleep(1)
+
+        for i in range(0, 3):
+            yield nc.publish("hello", "B")
+        yield nc.flush(1)
+
+        # Wait a bit to receive the final messages
+        yield tornado.gen.sleep(1)
+
+        # There would be a few async slow consumer errors
+        errors = error_cb.errors
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(type(errors[0]) is ErrSlowConsumer)
+
+        # We should have received some messages and dropped others,
+        # but definitely got the last 3 messages after recovering
+        # from the slow consumer error.
+        msgs = sub_hello_handler.msgs
+        self.assertTrue(len(msgs) > 10 and len(msgs) != 23)
+
+        msgs = sub_hello_handler.msgs[-3:]
+        for i in range(0, 3):
+            self.assertEqual("B", msgs[i].data)
+        yield nc.close()
+
+    @tornado.testing.gen_test
+    def test_close_stops_subscriptions_loops(self):
+        nc = Client()
+
+        def error_cb(err):
+            error_cb.errors.append(err)
+
+        error_cb.errors = []
+
+        yield nc.connect(io_loop=self.io_loop, error_cb=error_cb)
+
+        @tornado.gen.coroutine
+        def sub_hello_handler(msg):
+            msgs = sub_hello_handler.msgs
+            msgs.append(msg)
+
+        sub_hello_handler.msgs = []
+        yield nc.subscribe("hello.foo.bar", cb=sub_hello_handler)
+        yield nc.subscribe("hello.*.*", cb=sub_hello_handler)
+        yield nc.subscribe("hello.>", cb=sub_hello_handler)
+        yield nc.subscribe(">", cb=sub_hello_handler)
+
+        self.assertEqual(len(self.io_loop._callbacks), 5)
+        for i in range(0, 10):
+            yield nc.publish("hello.foo.bar", "test-{}".format(i))
+        yield nc.flush(1)
+        msgs = sub_hello_handler.msgs
+        self.assertEqual(len(msgs), 40)
+
+        self.assertEqual(len(nc._subs), 4)
+
+        subs = []
+        for _, sub in nc._subs.items():
+            subs.append(sub)
+            self.assertEqual(sub.closed, False)
+
+        yield nc.close()
+
+        # Close should have removed all subscriptions
+        self.assertEqual(len(nc._subs), 0)
+
+        # Let background message processors stop
+        yield tornado.gen.sleep(0)
+        self.assertEqual(len(self.io_loop._callbacks), 0)
+
+        for sub in subs:
+            self.assertEqual(sub.closed, True)
 
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
