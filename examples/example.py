@@ -20,14 +20,12 @@ from datetime import datetime
 from nats.io.utils import new_inbox
 from nats.io.client import Client as NATS
 
-
 @tornado.gen.coroutine
 def main():
     nc = NATS()
 
     # Establish connection to the server.
-    options = {"verbose": True, "servers": ["nats://127.0.0.1:4222"]}
-    yield nc.connect(**options)
+    yield nc.connect(servers=["nats://127.0.0.1:4222"])
 
     def discover(msg=None):
         print("[Received]: %s" % msg.data)
@@ -53,7 +51,7 @@ def main():
 
     try:
         # Expect a single request and timeout after 500 ms
-        response = yield nc.timed_request(
+        response = yield nc.request(
             "help", "Hi, need help!", timeout=0.500)
         print("[Response]: %s" % response.data)
     except tornado.gen.TimeoutError, e:
@@ -63,6 +61,7 @@ def main():
     def many_responses(msg=None):
         print("[Response]: %s" % msg.data)
 
+    # Async request expecting many responses
     yield nc.request("help", "please", expected=2, cb=many_responses)
 
     # Publish inbox

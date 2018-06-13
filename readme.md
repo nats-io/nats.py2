@@ -25,21 +25,19 @@ pip install nats-client
 ## Basic Usage
 
 ```python
-# coding: utf-8
 import tornado.ioloop
 import tornado.gen
 import time
 from datetime import datetime
-from nats.io.utils  import new_inbox
-from nats.io import Client as NATS
+from nats.io.utils import new_inbox
+from nats.io.client import Client as NATS
 
 @tornado.gen.coroutine
 def main():
     nc = NATS()
 
     # Establish connection to the server.
-    options = { "verbose": True, "servers": ["nats://127.0.0.1:4222"] }
-    yield nc.connect(**options)
+    yield nc.connect(servers=["nats://127.0.0.1:4222"])
 
     def discover(msg=None):
         print("[Received]: %s" % msg.data)
@@ -65,7 +63,8 @@ def main():
 
     try:
         # Expect a single request and timeout after 500 ms
-        response = yield nc.timed_request("help", "Hi, need help!", timeout=0.5)
+        response = yield nc.request(
+            "help", "Hi, need help!", timeout=0.500)
         print("[Response]: %s" % response.data)
     except tornado.gen.TimeoutError, e:
         print("Timeout! Need to retry...")
@@ -74,6 +73,7 @@ def main():
     def many_responses(msg=None):
         print("[Response]: %s" % msg.data)
 
+    # Async request expecting many responses
     yield nc.request("help", "please", expected=2, cb=many_responses)
 
     # Publish inbox
@@ -91,6 +91,7 @@ def main():
         print("Latency: %d µs" % (end.microsecond - start.microsecond))
     except tornado.gen.TimeoutError, e:
         print("Timeout! Roundtrip too slow...")
+
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)
