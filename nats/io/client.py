@@ -660,11 +660,26 @@ class Client(object):
         # remove the callback locally too.
         if max_msgs == 0 or sub.received >= max_msgs:
             self._subs.pop(ssid, None)
+            self._remove_subscription(sub)
 
         # We will send these for all subs when we reconnect anyway,
         # so that we can suppress here.
         if not self.is_reconnecting:
             yield self.auto_unsubscribe(ssid, max_msgs)
+
+    def _remove_subscription(self, sub):
+        # Mark as invalid
+        sub.closed = True
+
+        # Remove the pending queue
+        if sub.pending_queue is not None:
+            try:
+                # Send empty msg to signal cancellation
+                # and stop the msg processing loop.
+                sub.pending_queue.put_nowait(None)
+            except tornado.queues.QueueFull:
+                # Skip error
+                return
 
     @tornado.gen.coroutine
     def auto_unsubscribe(self, sid, limit=1):
@@ -735,6 +750,9 @@ class Client(object):
         # Check if it is an old style request.
         if sub.future is not None:
             sub.future.set_result(msg)
+
+            # Discard subscription since done
+            self._remove_subscription(sub)
             raise tornado.gen.Return()
 
         # Let subscription wait_for_msgs coroutine process the messages,
@@ -1037,6 +1055,12 @@ class Client(object):
         if not self.io.closed():
             self.io.close()
 
+        # Cleanup subscriptions since not reconnecting so no need
+        # to replay the subscriptions anymore.        
+        for ssid, sub in self._subs.items():
+            self._subs.pop(ssid, None)
+            self._remove_subscription(sub)
+
         if do_callbacks:
             if self._disconnected_cb is not None:
                 self._disconnected_cb()
@@ -1167,6 +1191,7 @@ class Subscription():
             is_async=False,
             future=None,
             max_msgs=0,
+            sid=None,
     ):
         self.subject = subject
         self.queue = queue
@@ -1175,14 +1200,14 @@ class Subscription():
         self.max_msgs = max_msgs
         self.is_async = is_async
         self.received = 0
+        self.sid = sid
 
         # Per subscription message processor
         self.pending_msgs_limit = None
         self.pending_bytes_limit = None
         self.pending_queue = None
         self.pending_size = 0
-        self.wait_for_msgs_task = None
-
+        self.closed = False
 
 class Msg(object):
     __slots__ = 'subject', 'reply', 'data', 'sid'

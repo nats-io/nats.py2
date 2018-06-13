@@ -1231,6 +1231,54 @@ class ClientTest(tornado.testing.AsyncTestCase):
             self.assertEqual("B", msgs[i].data)
         yield nc.close()
 
+    @tornado.testing.gen_test
+    def test_close_stops_subscriptions_loops(self):
+        nc = Client()
+
+        def error_cb(err):
+            error_cb.errors.append(err)
+        error_cb.errors = []
+
+        yield nc.connect(io_loop=self.io_loop,
+                         error_cb=error_cb)
+
+        @tornado.gen.coroutine
+        def sub_hello_handler(msg):
+            msgs = sub_hello_handler.msgs
+            msgs.append(msg)
+
+        sub_hello_handler.msgs = []
+        yield nc.subscribe("hello.foo.bar", cb=sub_hello_handler)
+        yield nc.subscribe("hello.*.*", cb=sub_hello_handler)
+        yield nc.subscribe("hello.>", cb=sub_hello_handler)        
+        yield nc.subscribe(">", cb=sub_hello_handler)        
+
+        self.assertEqual(len(self.io_loop._callbacks), 5)
+        for i in range(0, 10):
+            yield nc.publish("hello.foo.bar", "test-{}".format(i))
+        yield nc.flush(1)
+        msgs = sub_hello_handler.msgs
+        self.assertEqual(len(msgs), 40)
+
+        self.assertEqual(len(nc._subs), 4)
+
+        subs = []
+        for _, sub in nc._subs.items():
+            subs.append(sub)
+            self.assertEqual(sub.closed, False)
+
+        yield nc.close()
+
+        # Close should have removed all subscriptions
+        self.assertEqual(len(nc._subs), 0)
+
+        # Let background message processors stop
+        yield tornado.gen.sleep(0)
+        self.assertEqual(len(self.io_loop._callbacks), 0)
+
+        for sub in subs:
+            self.assertEqual(sub.closed, True)
+
 class ClientAuthTest(tornado.testing.AsyncTestCase):
     def setUp(self):
         print("\n=== RUN {0}.{1}".format(self.__class__.__name__,
