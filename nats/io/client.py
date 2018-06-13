@@ -421,9 +421,24 @@ class Client(object):
     @tornado.gen.coroutine
     def request(self, subject, payload, timeout=0.5, expected=1, cb=None):
         """
-        Implements the request/response pattern via pub/sub
-        using an ephemeral subscription which will be published
-        with customizable limited interest.
+        Implements the request/response pattern via pub/sub using an
+        unique reply subject and an async subscription.
+
+        If cb is None, then it will wait and return a single message
+        using the new request/response style that is less chatty over
+        the network.
+
+          ->> SUB _INBOX.BF6zPVxvScfXGd4VyUMJyo.* 1
+          ->> PUB hello _INBOX.BF6zPVxvScfXGd4VyUMJyo.BF6zPVxvScfXCh4VyUMJyo 5
+          ->> MSG_PAYLOAD: hello
+          <<- MSG hello 2 _INBOX.BF6zPVxvScfXGd4VyUMJyo.BF6zPVxvScfXCh4VyUMJyo 5
+          ->> PUB _INBOX.BF6zPVxvScfXGd4VyUMJyo.BF6zPVxvScfXCh4VyUMJyo  5
+          ->> MSG_PAYLOAD: world
+          <<- MSG _INBOX.BF6zPVxvScfXGd4VyUMJyo.BF6zPVxvScfXCh4VyUMJyo 1 5
+
+        If a cb is passed, then it will use auto unsubscribe
+        functionality and expect a limited number of messages which
+        will be handled asynchronously in the callback.
 
           ->> SUB _INBOX.gnKUg9bmAHANjxIsDiQsWO 90
           ->> UNSUB 90 1
