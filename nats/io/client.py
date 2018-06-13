@@ -452,7 +452,11 @@ class Client(object):
             next_inbox = INBOX_PREFIX[:]
             next_inbox.extend(self._nuid.next())
             inbox = str(next_inbox)
-            sid = yield self.subscribe(inbox, _EMPTY_, cb)
+            sid = yield self.subscribe(inbox,
+                                       queue=_EMPTY_,
+                                       cb=cb,
+                                       max_msgs=expected,
+                                       )
             yield self.auto_unsubscribe(sid, expected)
             yield self.publish_request(subject, inbox, payload)
             raise tornado.gen.Return(sid)
