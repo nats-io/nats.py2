@@ -277,9 +277,8 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertIn("go", info_keys)
         self.assertIn("host", info_keys)
         self.assertIn("port", info_keys)
-        self.assertIn("auth_required", info_keys)
-        self.assertIn("tls_required", info_keys)
         self.assertIn("max_payload", info_keys)
+        self.assertIn("client_id", info_keys)
 
     @tornado.testing.gen_test(timeout=5)
     def test_connect_fails(self):

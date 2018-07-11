@@ -818,7 +818,7 @@ class Client(object):
         self._max_payload_size = self._server_info["max_payload"]
 
         # Check whether we need to upgrade to TLS first of all
-        if self._server_info['tls_required']:
+        if 'tls_required' in self._server_info and self._server_info['tls_required']:
             # Detach and prepare for upgrading the TLS connection.
             self._loop.remove_handler(self._socket.fileno())
 
