@@ -734,6 +734,8 @@ class Client(object):
         sending an `-ERR 'Stale Connection'` error.
         """
         yield self.send_command(PONG_PROTO)
+        if self._flush_queue.empty():
+            yield self._flush_pending()
 
     @tornado.gen.coroutine
     def _process_pong(self):
