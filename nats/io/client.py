@@ -982,6 +982,9 @@ class Client(object):
                     break
                 except Exception as e:
                     self._err = e
+                    if self._error_cb is not None:
+                        self._error_cb(e)
+
                     yield self._close(Client.DISCONNECTED)
 
             # Replay all the subscriptions in case there were some.
