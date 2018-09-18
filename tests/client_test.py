@@ -1423,105 +1423,69 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
         class Component:
             def __init__(self, nc):
                 self.nc = nc
-                self.error = None
-                self.error_cb_called = False
                 self.errors = []
-                self.close_cb_called = False
+                self.done_future = tornado.concurrent.Future()
                 self.disconnected_cb_called = False
-                self.reconnected_cb_called = False
+                self.disconnected_future = tornado.concurrent.Future()
 
             def error_cb(self, err):
-                self.error = err
                 self.errors.append(err)
-                self.error_cb_called = True
+                if "Authorization Violation" in str(err) and self.done_future is not None:
+                    self.done_future.set_result(True)
 
             def close_cb(self):
                 self.close_cb_called = True
 
             def disconnected_cb(self):
                 self.disconnected_cb_called = True
+                if self.disconnected_future is not None:
+                    self.disconnected_future.set_result(True)
 
             def reconnected_cb(self):
                 self.reconnected_cb_called = True
 
         nc = Client()
-        component = Component(nc)
+        c = Component(nc)
         options = {
-            "dont_randomize":
-            True,
+            "dont_randomize": True,
             "servers": [
                 "nats://foo:bar@127.0.0.1:4223",
                 "nats://foo2:bar2@127.0.0.1:4224"
             ],
-            "io_loop":
-            self.io_loop,
-            "close_cb":
-            component.close_cb,
-            "error_cb":
-            component.error_cb,
-            "disconnected_cb":
-            component.disconnected_cb,
-            "reconnected_cb":
-            component.reconnected_cb,
-            "max_reconnect_attempts":
-            5,
-            "reconnect_time_wait":
-            0.1
+            "io_loop": self.io_loop,
+            "close_cb": c.close_cb,
+            "error_cb": c.error_cb,
+            "disconnected_cb": c.disconnected_cb,
+            "reconnected_cb": c.reconnected_cb,
+            "max_reconnect_attempts": 1,
+            "reconnect_time_wait": 0.1
         }
-        yield component.nc.connect(**options)
-        self.assertEqual(True, component.nc.is_connected)
+        yield c.nc.connect(**options)
+        self.assertEqual(True, c.nc.is_connected)
         self.assertEqual(True, nc._server_info["auth_required"])
 
         log = Log()
-        sid_1 = yield component.nc.subscribe("foo", "", log.persist)
-        self.assertEqual(sid_1, 1)
-        sid_2 = yield component.nc.subscribe("bar", "", log.persist)
-        self.assertEqual(sid_2, 2)
-        sid_3 = yield component.nc.subscribe("quux", "", log.persist)
-        self.assertEqual(sid_3, 3)
-        yield nc.publish("foo", "hello")
-        yield tornado.gen.sleep(2)
-        self.assertEqual("hello", log.records['foo'][0].data)
-        yield tornado.gen.sleep(1.0)
+        yield c.nc.subscribe("foo", "", log.persist)
+        yield c.nc.flush()
 
-        http = tornado.httpclient.AsyncHTTPClient()
-        response = yield http.fetch('http://127.0.0.1:8223/connz')
-        result = json.loads(response.body)
-        connz = result['connections'][0]
-        self.assertEqual(3, connz['subscriptions'])
-        self.assertEqual(1, connz['in_msgs'])
-        self.assertEqual(5, connz['in_bytes'])
-
-        yield component.nc.publish("foo", "world")
+        yield c.nc.publish("foo", "bar")
+        yield c.nc.flush()
         yield tornado.gen.sleep(0.5)
-        response = yield http.fetch('http://127.0.0.1:8223/connz')
-        result = json.loads(response.body)
-        connz = result['connections'][0]
-        self.assertEqual(3, connz['subscriptions'])
-        self.assertEqual(2, connz['in_msgs'])
-        self.assertEqual(10, connz['in_bytes'])
 
         # Shutdown first server, triggering reconnect...
         orig_gnatsd = self.server_pool.pop(0)
         orig_gnatsd.finish()
 
-        # Wait for reconnect logic kick in and fail due to authorization error.
-        yield tornado.gen.sleep(0.5)
-        self.assertFalse(component.nc.is_connected)
-        self.assertTrue(component.nc.is_reconnecting)
-        self.assertTrue(component.disconnected_cb_called)
+        # Wait for reconnect logic kick in and then fail due to authorization error.
+        yield tornado.gen.with_timeout(
+            timedelta(seconds=1), c.disconnected_future)
+        c.disconnected_future = None
 
-        # No guarantee in getting the error before the connection is closed,
-        # by the server though the behavior should be as below.
-        # self.assertEqual(1, component.nc.stats['errors_received'])
-        # self.assertEqual(ErrAuthorization, component.nc.last_error())
-        # self.assertTrue(component.error_cb_called)
-
-        # Connection is closed at this point after reconnect failed.
-        yield tornado.gen.sleep(1)
-        self.assertTrue(component.reconnected_cb_called)
-        self.assertEqual(6, len(component.errors))
-        self.assertTrue(component.close_cb_called)
+        yield tornado.gen.with_timeout(
+            timedelta(seconds=1), c.done_future)
+        c.done_future = None
+        yield c.nc.close()
+        self.assertEqual(1, len(log.records["foo"]))
 
     # @tornado.testing.gen_test(timeout=15)
     @unittest.skip("FIXME: flapping test")
