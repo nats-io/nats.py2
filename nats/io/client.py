@@ -12,21 +12,22 @@
 # limitations under the License.
 #
 
-import socket
-import json
-import time
-import io
-import ssl
 import tornado.iostream
 import tornado.concurrent
 import tornado.escape
 import tornado.gen
 import tornado.ioloop
 import tornado.queues
+import socket
+import json
+import time
+import io
+import ssl
 
 from random import shuffle
 from urlparse import urlparse
 from datetime import timedelta
+
 from nats import __lang__, __version__
 from nats.io.errors import *
 from nats.io.nuid import NUID
@@ -75,6 +76,61 @@ PROTOCOL = 1
 INBOX_PREFIX = bytearray(b'_INBOX.')
 INBOX_PREFIX_LEN = len(INBOX_PREFIX) + 22 + 1
 
+class Subscription():
+    def __init__(self, subject='', queue='', cb=None, is_async=False,
+                 future=None, max_msgs=0, sid=None):
+        self.subject = subject
+        self.queue = queue
+        self.cb = cb
+        self.future = future
+        self.max_msgs = max_msgs
+        self.is_async = is_async
+        self.received = 0
+        self.sid = sid
+
+        # Per subscription message processor
+        self.pending_msgs_limit = None
+        self.pending_bytes_limit = None
+        self.pending_queue = None
+        self.pending_size = 0
+        self.closed = False
+
+
+class Msg(object):
+    __slots__ = 'subject', 'reply', 'data', 'sid'
+
+    def __init__(
+            self,
+            subject='',
+            reply='',
+            data=b'',
+            sid=0,
+    ):
+        self.subject = subject
+        self.reply = reply
+        self.data = data
+        self.sid = sid
+
+    def __repr__(self):
+        return "<{}: subject='{}' reply='{}' data='{}...'>".format(
+            self.__class__.__name__,
+            self.subject,
+            self.reply,
+            self.data[:10].decode(),
+        )
+
+
+class Srv(object):
+    """
+    Srv is a helper data structure to hold state of a server.
+    """
+
+    def __init__(self, uri):
+        self.uri = uri
+        self.reconnects = 0
+        self.last_attempt = None
+        self.did_connect = False
+        self.discovered = False
 
 class Client(object):
     """
@@ -91,37 +147,36 @@ class Client(object):
         return "<nats client v{}>".format(__version__)
 
     def __init__(self):
-        self.options = {}
-
-        # INFO that we get upon connect from the server.
+        self._loop = None
+        self._current_server = None
         self._server_info = {}
-        self._max_payload_size = DEFAULT_MAX_PAYLOAD_SIZE
-
-        # Client connection state and clustering.
+        self._server_pool = []
         self.io = None
         self._socket = None
-        self._status = Client.DISCONNECTED
-        self._server_pool = []
-        self._current_server = None
-        self._pending = []
-        self._pending_size = 0
-        self._loop = None
-        self.stats = {
-            'in_msgs': 0,
-            'out_msgs': 0,
-            'in_bytes': 0,
-            'out_bytes': 0,
-            'reconnects': 0,
-            'errors_received': 0
-        }
 
-        # Storage and monotonically increasing index for subscription callbacks.
+        # Ping Interval
+        self._ping_timer = None
+        self._pings_outstanding = 0
+        self._pongs_received = 0
+        self._pongs = []
+
+        # Callbacks
+        self._err = None
+        self._error_cb = None
+        self._disconnected_cb = None
+        self._close_cb = None # Should have been closed_cb
+        self._reconnected_cb = None
+
+        # Dispatcher
+        self._max_payload_size = DEFAULT_MAX_PAYLOAD_SIZE
         self._subs = {}
         self._ssid = 0
-
-        # Parser with state for processing the wire protocol.
+        self._status = Client.DISCONNECTED
         self._ps = Parser(self)
-        self._err = None
+
+        # Flusher
+        self._pending = []
+        self._pending_size = 0
         self._flush_queue = None
 
         # New style request/response
@@ -130,16 +185,16 @@ class Client(object):
         self._resp_sub_prefix = None
         self._nuid = NUID()
 
-        # Ping interval to disconnect from unhealthy servers.
-        self._ping_timer = None
-        self._pings_outstanding = 0
-        self._pongs_received = 0
-        self._pongs = []
-
-        self._error_cb = None
-        self._close_cb = None
-        self._disconnected_cb = None
-        self._reconnected_cb = None
+        # Custom options
+        self.options = {}
+        self.stats = {
+            'in_msgs': 0,
+            'out_msgs': 0,
+            'in_bytes': 0,
+            'out_bytes': 0,
+            'reconnects': 0,
+            'errors_received': 0
+        }
 
     @tornado.gen.coroutine
     def connect(self,
@@ -1215,68 +1270,3 @@ class Client(object):
             if self._flush_queue is not None and self._flush_queue.empty():
                 self._flush_pending(check_connected=False)
             yield tornado.gen.moment
-
-
-class Subscription():
-    def __init__(
-            self,
-            subject='',
-            queue='',
-            cb=None,
-            is_async=False,
-            future=None,
-            max_msgs=0,
-            sid=None,
-    ):
-        self.subject = subject
-        self.queue = queue
-        self.cb = cb
-        self.future = future
-        self.max_msgs = max_msgs
-        self.is_async = is_async
-        self.received = 0
-        self.sid = sid
-
-        # Per subscription message processor
-        self.pending_msgs_limit = None
-        self.pending_bytes_limit = None
-        self.pending_queue = None
-        self.pending_size = 0
-        self.closed = False
-
-
-class Msg(object):
-    __slots__ = 'subject', 'reply', 'data', 'sid'
-
-    def __init__(
-            self,
-            subject='',
-            reply='',
-            data=b'',
-            sid=0,
-    ):
-        self.subject = subject
-        self.reply = reply
-        self.data = data
-        self.sid = sid
-
-    def __repr__(self):
-        return "<{}: subject='{}' reply='{}' data='{}...'>".format(
-            self.__class__.__name__,
-            self.subject,
-            self.reply,
-            self.data[:10].decode(),
-        )
-
-
-class Srv(object):
-    """
-    Srv is a helper data structure to hold state of a server.
-    """
-
-    def __init__(self, uri):
-        self.uri = uri
-        self.reconnects = 0
-        self.last_attempt = None
-        self.did_connect = False
-        self.discovered = False
