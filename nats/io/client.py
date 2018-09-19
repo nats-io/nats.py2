@@ -164,7 +164,7 @@ class Client(object):
         self._err = None
         self._error_cb = None
         self._disconnected_cb = None
-        self._close_cb = None # Should have been closed_cb
+        self._closed_cb = None
         self._reconnected_cb = None
 
         # Dispatcher
@@ -199,26 +199,41 @@ class Client(object):
     @tornado.gen.coroutine
     def connect(self,
                 servers=[],
-                verbose=False,
-                pedantic=False,
-                name=None,
-                ping_interval=DEFAULT_PING_INTERVAL,
-                max_outstanding_pings=MAX_OUTSTANDING_PINGS,
-                dont_randomize=False,
-                allow_reconnect=True,
-                close_cb=None,
+                # 'io_loop' and 'loop' are the same, we have both
+                # to be more consistent with asyncio client.
+                io_loop=None,
+                loop=None,
+
+                # Event Callbacks
                 error_cb=None,
                 disconnected_cb=None,
                 reconnected_cb=None,
-                io_loop=None,
+                # 'close_cb' is the same as 'closed_cb' but we have
+                # both to be consistent with the asyncio client.
+                close_cb=None,
+                closed_cb=None,
+
+                # Connect options
+                name=None,
+                pedantic=False,
+                verbose=False,
+
+                # Reconnect logic
+                allow_reconnect=True,
+                connect_timeout=DEFAULT_CONNECT_TIMEOUT,
+                reconnect_time_wait=RECONNECT_TIME_WAIT,
+                max_reconnect_attempts=MAX_RECONNECT_ATTEMPTS,
+                dont_randomize=False,
+
+                # Ping Interval
+                ping_interval=DEFAULT_PING_INTERVAL,
+                max_outstanding_pings=MAX_OUTSTANDING_PINGS,
+                tls=None,
                 max_read_buffer_size=DEFAULT_READ_BUFFER_SIZE,
                 max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
                 read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
                 tcp_nodelay=False,
-                connect_timeout=DEFAULT_CONNECT_TIMEOUT,
-                max_reconnect_attempts=MAX_RECONNECT_ATTEMPTS,
-                reconnect_time_wait=RECONNECT_TIME_WAIT,
-                tls=None):
+                ):
         """
         Establishes a connection to a NATS server.
 
@@ -251,11 +266,11 @@ class Client(object):
         if tls is not None:
             self.options["tls"] = tls
 
-        self._close_cb = close_cb
+        self._closed_cb = closed_cb or close_cb
         self._error_cb = error_cb
         self._disconnected_cb = disconnected_cb
         self._reconnected_cb = reconnected_cb
-        self._loop = io_loop if io_loop else tornado.ioloop.IOLoop.instance()
+        self._loop = io_loop or loop or tornado.ioloop.IOLoop.instance()
         self._max_read_buffer_size = max_read_buffer_size
         self._max_write_buffer_size = max_write_buffer_size
         self._read_chunk_size = read_chunk_size
@@ -1154,8 +1169,8 @@ class Client(object):
         if do_callbacks:
             if self._disconnected_cb is not None:
                 self._disconnected_cb()
-            if self._close_cb is not None:
-                self._close_cb()
+            if self._closed_cb is not None:
+                self._closed_cb()
 
     @tornado.gen.coroutine
     def _process_err(self, err=None):

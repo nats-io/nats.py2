@@ -330,6 +330,39 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertFalse(client.closed_cb_called)
 
     @tornado.testing.gen_test(timeout=5)
+    def test_reconnect_fail_calls_closed_cb(self):
+        class SampleClient():
+            def __init__(self):
+                self.nc = Client()
+                self.disconnected_cb_called = tornado.concurrent.Future()
+                self.closed_cb_called = tornado.concurrent.Future()
+
+            def disconnected_cb(self):
+                if not self.disconnected_cb_called.done():
+                    self.disconnected_cb_called.set_result(True)
+
+            def closed_cb(self):
+                if not self.closed_cb_called.done():
+                    self.closed_cb_called.set_result(True)
+
+        c = SampleClient()
+        options = {
+            "servers": ["nats://127.0.0.1:4449"],
+            "closed_cb": c.closed_cb,
+            "disconnected_cb": c.disconnected_cb,
+            "allow_reconnect": True,
+            "loop": self.io_loop,
+            "max_reconnect_attempts": 2,
+            "reconnect_time_wait": 0.1
+        }
+        with Gnatsd(port=4449, http_port=8449, conf="") as natsd:
+            yield c.nc.connect(**options)
+            natsd.finish()
+
+            yield tornado.gen.with_timeout(timedelta(seconds=1), c.disconnected_cb_called)
+            yield tornado.gen.with_timeout(timedelta(seconds=2), c.closed_cb_called)
+
+    @tornado.testing.gen_test(timeout=5)
     def test_connect_fails_allow_reconnect_forever_until_close(self):
         class SampleClient():
             def __init__(self):
