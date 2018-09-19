@@ -12,5 +12,5 @@
 # limitations under the License.
 #
 
-__version__ = b'0.7.2'
+__version__ = b'0.8.0'
 __lang__ = b'python2'
