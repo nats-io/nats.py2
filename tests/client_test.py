@@ -1448,6 +1448,7 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
         a = c.nc._current_server
         orig_gnatsd = self.server_pool.pop(0)
         orig_gnatsd.finish()
+        yield tornado.gen.sleep(1)
 
         # Use future for when disconnect/reconnect events to happen.
         try:
@@ -1577,112 +1578,6 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
             self.assertEqual(errors_at_close, errors_after_close)
             self.assertEqual(1, len(c.log.records["foo"]))
-
-    # @tornado.testing.gen_test(timeout=15)
-    @unittest.skip("FIXME: flapping test")
-    def test_auth_pending_bytes_handling(self):
-
-        nc = Client()
-
-        class Component:
-            def __init__(self, nc):
-                self.nc = nc
-                self.errors = []
-                self.written = 0
-                self.max_messages = 2000
-                self.disconnected_at = 0
-                self.pending_bytes_when_closed = 0
-                self.pending_bytes_when_reconnected = 0
-
-            def error_cb(self, err):
-                self.errors.append(err)
-
-            def disconnected_cb(self):
-                self.disconnected_at = self.written
-                self.pending_bytes_when_closed = len(self.nc._pending)
-
-            def reconnected_cb(self):
-                self.pending_bytes_when_reconnected = len(self.nc._pending)
-
-            @tornado.gen.coroutine
-            def publisher(self):
-                for i in range(0, self.max_messages):
-                    yield self.nc.publish("foo", "{0},".format(i))
-                    # yield self.nc.flush()
-                    self.written += 1
-                    yield tornado.gen.sleep(0.0001)
-
-        c = Component(nc)
-        options = {
-            "dont_randomize":
-            True,
-            "servers": [
-                "nats://foo:bar@127.0.0.1:4223",
-                "nats://hoge:fuga@127.0.0.1:4224"
-            ],
-            "io_loop":
-            self.io_loop,
-            "reconnected_cb":
-            c.reconnected_cb,
-            "disconnected_cb":
-            c.disconnected_cb,
-            "error_cb":
-            c.error_cb,
-            "reconnect_time_wait":
-            0.1
-        }
-        yield c.nc.connect(**options)
-        self.assertEqual(True, nc._server_info["auth_required"])
-
-        log = Log()
-        yield c.nc.subscribe("foo", "", log.persist)
-        self.io_loop.spawn_callback(c.publisher)
-
-        a = nc._current_server
-        yield tornado.gen.sleep(0.001)
-        orig_gnatsd = self.server_pool.pop(0)
-        orig_gnatsd.finish()
-        yield tornado.gen.sleep(0.001)
-
-        # Wait for reconnect logic kick in...
-        yield tornado.gen.sleep(3)
-        b = nc._current_server
-        self.assertNotEqual(a.uri, b.uri)
-
-        # Should have reconnected already
-        self.assertTrue(nc.is_connected)
-        self.assertFalse(nc.is_reconnecting)
-
-        # Wait a bit until it flushes all...
-        yield tornado.gen.sleep(1)
-
-        http = tornado.httpclient.AsyncHTTPClient()
-        response = yield http.fetch('http://127.0.0.1:8224/connz')
-        result = json.loads(response.body)
-        connz = result['connections'][0]
-        self.assertTrue(connz['in_msgs'] > 0)
-        self.assertTrue(
-            c.pending_bytes_when_reconnected > c.pending_bytes_when_closed)
-
-        # Give a small margin of error in case we didn't grab the
-        # self.assertTrue(c.max_messages - c.disconnected_at - 5 < connz['in_msgs'] < c.max_messages - c.disconnected_at + 5)
-
-        # FIXME: Race with subscription not present by the time
-        # we flush the buffer again so can't receive messages
-        # if sending to our own subscription.
-        #
-        # full_msg = ''
-        # for msg in log.records['foo']:
-        #      full_msg += msg.data
-        #
-        # expected_full_msg = ''
-        # for i in range(0, c.max_messages):
-        #      expected_full_msg += "%d," % i
-        #
-        # a = set(full_msg.split(','))
-        # b = set(expected_full_msg.split(','))
-        # print(sorted(list(b - a)))
-        # self.assertEqual(len(expected_full_msg), len(full_msg))
 
     @tornado.testing.gen_test(timeout=10)
     def test_close_connection(self):
