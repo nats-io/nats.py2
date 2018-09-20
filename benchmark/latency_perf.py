@@ -77,4 +77,4 @@ def main():
   yield nc.close()
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)

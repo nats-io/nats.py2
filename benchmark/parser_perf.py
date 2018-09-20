@@ -56,7 +56,7 @@ def parse_msgs(max_msgs=1, nbytes=1):
     buf.extend(b''.join(
         [generate_msg("foo", nbytes) for i in range(0, max_msgs)]))
     print("--- buffer size: {0}".format(len(buf)))
-    loop = tornado.ioloop.IOLoop.instance()
+    loop = tornado.ioloop.IOLoop.current()
     ps = Parser(DummyNatsClient())
     ps.buf = buf
     loop.run_sync(ps.parse)

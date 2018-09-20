@@ -273,7 +273,7 @@ class Client(object):
         self._error_cb = error_cb
         self._disconnected_cb = disconnected_cb
         self._reconnected_cb = reconnected_cb
-        self._loop = io_loop or loop or tornado.ioloop.IOLoop.instance()
+        self._loop = io_loop or loop or tornado.ioloop.IOLoop.current()
         self._max_read_buffer_size = max_read_buffer_size
         self._max_write_buffer_size = max_write_buffer_size
         self._read_chunk_size = read_chunk_size

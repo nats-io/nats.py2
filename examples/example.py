@@ -69,7 +69,7 @@ def main():
     yield nc.subscribe(my_inbox)
     yield nc.publish_request("help", my_inbox, "I can help too!")
 
-    loop = tornado.ioloop.IOLoop.instance()
+    loop = tornado.ioloop.IOLoop.current()
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
     try:
         start = datetime.now()
@@ -82,4 +82,4 @@ def main():
 
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)
