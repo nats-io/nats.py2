@@ -2043,7 +2043,7 @@ class ClientConnectTest(tornado.testing.AsyncTestCase):
     @tornado.testing.gen_test(timeout=5)
     def test_connect_info_large_protocol_line(self):
         # Start mock TCP Server
-        server = LargeControlLineNATSServer(io_loop=self.io_loop)
+        server = LargeControlLineNATSServer()
         server.listen(4229)
         nc = Client()
         options = {
@@ -2058,7 +2058,7 @@ class ClientConnectTest(tornado.testing.AsyncTestCase):
     @tornado.testing.gen_test(timeout=5)
     def test_connect_info_large_protocol_line_2(self):
         # Start mock TCP Server
-        server = ShortControlLineNATSServer(io_loop=self.io_loop)
+        server = ShortControlLineNATSServer()
         server.listen(4229)
         nc = Client()
         options = {
