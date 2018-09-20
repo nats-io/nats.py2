@@ -1288,9 +1288,6 @@ class Client(object):
             except tornado.iostream.StreamClosedError as e:
                 self._pending = pending + self._pending
                 self._pending_size += pending_size
-                # self._err = e
-                # if self._error_cb is not None and not self.is_reconnecting:
-                #     self._error_cb(e)
                 yield self._process_op_err(e)
 
     @tornado.gen.coroutine
