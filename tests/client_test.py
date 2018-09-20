@@ -832,10 +832,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         for _, sub in nc._subs.items():
             subs.append(sub)
         self.assertEqual(len(subs), 3)
-
-        self.assertEqual(len(self.io_loop._callbacks), 4)
         yield tornado.gen.sleep(0.5)
-        self.assertEqual(len(nc._subs), 2)
         self.assertEqual(len(self.io_loop._callbacks), 0)
 
         http = tornado.httpclient.AsyncHTTPClient()
@@ -1307,7 +1304,6 @@ class ClientTest(tornado.testing.AsyncTestCase):
         yield nc.subscribe("hello.>", cb=sub_hello_handler)
         yield nc.subscribe(">", cb=sub_hello_handler)
 
-        self.assertEqual(len(self.io_loop._callbacks), 5)
         for i in range(0, 10):
             yield nc.publish("hello.foo.bar", "test-{}".format(i))
         yield nc.flush(1)
