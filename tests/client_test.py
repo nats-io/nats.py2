@@ -1651,7 +1651,12 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
           net: 127.0.0.1
 
           http_port: 8222
-
+          tls {
+            cert_file: './tests/configs/certs/server-cert.pem'
+            key_file:  './tests/configs/certs/server-key.pem'
+            ca_file:   './tests/configs/certs/ca.pem'
+            timeout:   10
+          }
           """
         config_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
         config_file.write(conf)
@@ -1760,6 +1765,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
                 self.reconnected_cb_called = False
                 self.msgs = []
                 self.reconnected_future = tornado.concurrent.Future()
+                self.disconnected_future = tornado.concurrent.Future()
 
             @tornado.gen.coroutine
             def subscription_handler(self, msg):
@@ -1774,10 +1780,13 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
 
             def disconnected_cb(self):
                 self.disconnected_cb_called = True
-
+                if not self.disconnected_future.done():
+                    self.disconnected_future.set_result(True)
+                    
             def reconnected_cb(self):
                 self.reconnected_cb_called = True
-                self.reconnected_future.set_result(True)
+                if not self.reconnected_future.done():
+                    self.reconnected_future.set_result(True)
 
         nc = Client()
         c = Component(nc)
@@ -1787,40 +1796,45 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
                 "nats://127.0.0.1:4444",
                 "nats://127.0.0.1:4445",
             ],
-            "io_loop": self.io_loop,
-            "close_cb": c.close_cb,
+            "loop": self.io_loop,
+            "closed_cb": c.close_cb,
             "error_cb": c.error_cb,
             "disconnected_cb": c.disconnected_cb,
-            "reconnected_cb": c.reconnected_cb
+            "reconnected_cb": c.reconnected_cb,
+            "reconnect_time_wait": 0.1,
+            "max_reconnect_attempts": 5
         }
 
         yield c.nc.connect(**options)
         yield c.nc.subscribe("hello", cb=c.subscription_handler)
         yield c.nc.flush()
         for i in range(0, 5):
-            msg = yield c.nc.timed_request("hello", b'world')
+            msg = yield c.nc.request("hello", b'world')
             c.msgs.append(msg)
-        self.assertEqual(len(c.msgs), 5)
+        self.assertEqual(5, len(c.msgs))
 
         # Trigger disconnect...
         orig_gnatsd = self.server_pool.pop(0)
         orig_gnatsd.finish()
+
         try:
             a = nc._current_server
+
             # Wait for reconnect logic kick in...
             yield tornado.gen.with_timeout(
-                timedelta(seconds=10), c.reconnected_future)
+                timedelta(seconds=5), c.disconnected_future)
+            yield tornado.gen.with_timeout(
+                timedelta(seconds=5), c.reconnected_future)
         finally:
             b = nc._current_server
             self.assertNotEqual(a.uri, b.uri)
-
         self.assertTrue(c.disconnected_cb_called)
         self.assertFalse(c.close_cb_called)
-        self.assertTrue(c.error_cb_called)
+        self.assertFalse(c.error_cb_called)
         self.assertTrue(c.reconnected_cb_called)
 
         for i in range(0, 5):
-            msg = yield c.nc.timed_request("hello", b'world')
+            msg = yield c.nc.request("hello", b'world')
             c.msgs.append(msg)
         self.assertEqual(len(c.msgs), 10)
 
@@ -1828,7 +1842,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
         yield c.nc.close()
         self.assertTrue(c.disconnected_cb_called)
         self.assertTrue(c.close_cb_called)
-        self.assertTrue(c.error_cb_called)
+        self.assertFalse(c.error_cb_called)
         self.assertTrue(c.reconnected_cb_called)
 
 
