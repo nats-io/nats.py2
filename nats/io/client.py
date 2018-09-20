@@ -914,8 +914,7 @@ class Client(object):
                 self._socket, do_handshake_on_connect=False, **tls_opts)
 
             # Use the TLS stream instead from now
-            self.io = tornado.iostream.SSLIOStream(
-                self._socket, io_loop=self._loop)
+            self.io = tornado.iostream.SSLIOStream(self._socket)
             self.io.set_close_callback(self._process_op_err)
             self.io._do_ssl_handshake()
 
