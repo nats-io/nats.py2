@@ -20,6 +20,7 @@ import os
 from datetime import timedelta
 from collections import defaultdict as Hash
 from nats.io import Client
+from nats.io import Client as NATS
 from nats.io.errors import *
 from nats.io.utils import new_inbox, INBOX_PREFIX
 from nats.protocol.parser import *
@@ -279,6 +280,113 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertIn("port", info_keys)
         self.assertIn("max_payload", info_keys)
         self.assertIn("client_id", info_keys)
+
+    def test_connect_syntax_sugar(self):
+        nc = NATS()
+        nc._setup_server_pool(["nats://127.0.0.1:4222", "nats://127.0.0.1:4223", "nats://127.0.0.1:4224"])
+        self.assertEqual(3, len(nc._server_pool))
+
+        nc = NATS()
+        nc._setup_server_pool("nats://127.0.0.1:4222")
+        self.assertEqual(1, len(nc._server_pool))
+
+        nc = NATS()
+        nc._setup_server_pool("127.0.0.1:4222")
+        self.assertEqual(1, len(nc._server_pool))
+
+        nc = NATS()
+        nc._setup_server_pool("nats://127.0.0.1:")
+        self.assertEqual(1, len(nc._server_pool))
+
+        nc = NATS()
+        nc._setup_server_pool("127.0.0.1")
+        self.assertEqual(1, len(nc._server_pool))
+        self.assertEqual(4222, nc._server_pool[0].uri.port)
+
+        nc = NATS()
+        nc._setup_server_pool("demo.nats.io")
+        self.assertEqual(1, len(nc._server_pool))
+        self.assertEqual("demo.nats.io", nc._server_pool[0].uri.hostname)
+        self.assertEqual(4222, nc._server_pool[0].uri.port)
+
+        nc = NATS()
+        nc._setup_server_pool("localhost:")
+        self.assertEqual(1, len(nc._server_pool))
+        self.assertEqual(4222, nc._server_pool[0].uri.port)
+
+        nc = NATS()
+        with self.assertRaises(NatsError):
+            nc._setup_server_pool("::")
+        self.assertEqual(0, len(nc._server_pool))
+
+        nc = NATS()
+        with self.assertRaises(NatsError):
+            nc._setup_server_pool("nats://")
+
+        nc = NATS()
+        with self.assertRaises(NatsError):
+            nc._setup_server_pool("://")
+        self.assertEqual(0, len(nc._server_pool))
+
+        nc = NATS()
+        with self.assertRaises(NatsError):
+            nc._setup_server_pool("")
+        self.assertEqual(0, len(nc._server_pool))
+
+        # Auth examples
+        nc = NATS()
+        nc._setup_server_pool("hello:world@demo.nats.io:4222")
+        self.assertEqual(1, len(nc._server_pool))
+        uri = nc._server_pool[0].uri
+        self.assertEqual("demo.nats.io", uri.hostname)
+        self.assertEqual(4222, uri.port)
+        self.assertEqual("hello", uri.username)
+        self.assertEqual("world", uri.password)
+
+        nc = NATS()
+        nc._setup_server_pool("hello:@demo.nats.io:4222")
+        self.assertEqual(1, len(nc._server_pool))
+        uri = nc._server_pool[0].uri
+        self.assertEqual("demo.nats.io", uri.hostname)
+        self.assertEqual(4222, uri.port)
+        self.assertEqual("hello", uri.username)
+        self.assertEqual("", uri.password)
+
+        nc = NATS()
+        nc._setup_server_pool(":@demo.nats.io:4222")
+        self.assertEqual(1, len(nc._server_pool))
+        uri = nc._server_pool[0].uri
+        self.assertEqual("demo.nats.io", uri.hostname)
+        self.assertEqual(4222, uri.port)
+        self.assertEqual("", uri.username)
+        self.assertEqual("", uri.password)
+
+        nc = NATS()
+        nc._setup_server_pool("@demo.nats.io:4222")
+        self.assertEqual(1, len(nc._server_pool))
+        uri = nc._server_pool[0].uri
+        self.assertEqual("demo.nats.io", uri.hostname)
+        self.assertEqual(4222, uri.port)
+        self.assertEqual("", uri.username)
+        self.assertEqual(None, uri.password)
+
+        nc = NATS()
+        nc._setup_server_pool("@demo.nats.io:")
+        self.assertEqual(1, len(nc._server_pool))
+        uri = nc._server_pool[0].uri
+        self.assertEqual("demo.nats.io", uri.hostname)
+        self.assertEqual(4222, uri.port)
+        self.assertEqual(None, uri.username)
+        self.assertEqual(None, uri.password)
+
+        nc = NATS()
+        nc._setup_server_pool("@demo.nats.io")
+        self.assertEqual(1, len(nc._server_pool))
+        uri = nc._server_pool[0].uri
+        self.assertEqual("demo.nats.io", uri.hostname)
+        self.assertEqual(4222, uri.port)
+        self.assertEqual("", uri.username)
+        self.assertEqual(None, uri.password)
 
     @tornado.testing.gen_test(timeout=5)
     def test_connect_fails(self):
@@ -2110,24 +2218,18 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
             "io_loop": self.io_loop,
         }
 
-        with Gnatsd(
-                port=4222, http_port=8222, cluster_port=6222,
-                conf=conf) as nats1:
+        with Gnatsd(port=4222, http_port=8222, cluster_port=6222, conf=conf) as nats1:
             yield nc.connect(**options)
             yield tornado.gen.sleep(1)
             initial_uri = nc.connected_url
-            with Gnatsd(
-                    port=4223, http_port=8223, cluster_port=6223,
-                    conf=conf) as nats2:
+            with Gnatsd(port=4223, http_port=8223, cluster_port=6223, conf=conf) as nats2:
                 yield tornado.gen.sleep(1)
                 srvs = {}
                 for item in nc._server_pool:
                     srvs[item.uri.port] = True
                 self.assertEqual(len(srvs.keys()), 2)
 
-                with Gnatsd(
-                        port=4224, http_port=8224, cluster_port=6224,
-                        conf=conf) as nats3:
+                with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
                     yield tornado.gen.sleep(1)
                     for item in nc._server_pool:
                         srvs[item.uri.port] = True

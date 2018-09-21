@@ -201,7 +201,7 @@ class Client(object):
 
     @tornado.gen.coroutine
     def connect(self,
-                servers=[],
+                servers=["nats://127.0.0.1:4222"],
                 loop=None,
                 # 'io_loop' and 'loop' are the same, but we have
                 # both params to be consistent with asyncio client.
@@ -249,8 +249,20 @@ class Client(object):
           # User and pass are to be passed on the uri to authenticate.
           yield nc.connect({ 'servers': ['nats://hello:world@192.168.1.10:4222'] })
 
+          # Simple URL can be used as well.
+          yield nc.connect('demo.nats.io:4222')
+
         """
-        self.options["servers"] = servers
+        self._setup_server_pool(servers)
+        self._loop = io_loop or loop or tornado.ioloop.IOLoop.current()
+        self._error_cb = error_cb
+        self._closed_cb = closed_cb or close_cb
+        self._reconnected_cb = reconnected_cb
+        self._disconnected_cb = disconnected_cb
+        self._max_read_buffer_size = max_read_buffer_size
+        self._max_write_buffer_size = max_write_buffer_size
+        self._read_chunk_size = read_chunk_size
+
         self.options["verbose"] = verbose
         self.options["pedantic"] = pedantic
         self.options["name"] = name
@@ -268,22 +280,6 @@ class Client(object):
         # TLS customizations
         if tls is not None:
             self.options["tls"] = tls
-
-        self._closed_cb = closed_cb or close_cb
-        self._error_cb = error_cb
-        self._disconnected_cb = disconnected_cb
-        self._reconnected_cb = reconnected_cb
-        self._loop = io_loop or loop or tornado.ioloop.IOLoop.current()
-        self._max_read_buffer_size = max_read_buffer_size
-        self._max_write_buffer_size = max_write_buffer_size
-        self._read_chunk_size = read_chunk_size
-
-        if len(self.options["servers"]) < 1:
-            srv = Srv(urlparse("nats://127.0.0.1:4222"))
-            self._server_pool.append(srv)
-        else:
-            for srv in self.options["servers"]:
-                self._server_pool.append(Srv(urlparse(srv)))
 
         while True:
             try:
@@ -1105,6 +1101,42 @@ class Client(object):
                 self._status = Client.RECONNECTING
                 self._current_server.last_attempt = time.time()
                 self._current_server.reconnects += 1
+
+    def _setup_server_pool(self, connect_url):
+        if type(connect_url) is str:
+            try:
+                if "nats://" in connect_url or "tls://" in connect_url:
+                    # Closer to how the Go client handles this.
+                    # e.g. nats://127.0.0.1:4222
+                    uri = urlparse(connect_url)
+                elif ":" in connect_url:
+                    # Expand the scheme for the user
+                    # e.g. 127.0.0.1:4222
+                    uri = urlparse("nats://%s" % connect_url)
+                else:
+                    # Just use the endpoint with the default NATS port.
+                    # e.g. demo.nats.io
+                    uri = urlparse("nats://%s:4222" % connect_url)
+
+                # In case only endpoint with scheme was set.
+                # e.g. nats://demo.nats.io or localhost:
+                if uri.port is None:
+                    uri = urlparse("nats://%s:4222" % uri.hostname)
+            except ValueError:
+                raise NatsError("nats: invalid connect url option")
+
+            if uri.hostname is None or len(uri.hostname) == 0 or uri.hostname == "none":
+                raise NatsError("nats: invalid hostname in connect url")
+            self._server_pool.append(Srv(uri))
+        elif type(connect_url) is list:
+            try:
+                for server in connect_url:
+                    uri = urlparse(server)
+                    self._server_pool.append(Srv(uri))
+            except ValueError:
+                raise NatsError("nats: invalid connect url option")
+        else:
+            raise NatsError("nats: invalid connect url option")
 
     @tornado.gen.coroutine
     def _select_next_server(self):
