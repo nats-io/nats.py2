@@ -51,13 +51,12 @@ def main():
     opts = {"servers": servers}
     yield nc.connect(**opts)
 
+    @tornado.gen.coroutine
     def handler(msg):
         print("[Received: {0}] {1}".format(msg.subject, msg.data))
 
     print("Subscribed to '{0}'".format(args.subject))
-    future = nc.subscribe(args.subject, args.queue, handler)
-    sid = future.result()
-
+    yield nc.subscribe(args.subject, args.queue, handler)
 
 if __name__ == '__main__':
     main()
