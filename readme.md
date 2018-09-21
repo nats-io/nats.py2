@@ -28,8 +28,6 @@ pip install nats-client
 import tornado.ioloop
 import tornado.gen
 import time
-from datetime import datetime
-from nats.io.utils import new_inbox
 from nats.io.client import Client as NATS
 
 @tornado.gen.coroutine
@@ -37,61 +35,45 @@ def main():
     nc = NATS()
 
     # Establish connection to the server.
-    yield nc.connect(servers=["nats://127.0.0.1:4222"])
+    yield nc.connect("nats://demo.nats.io:4222")
 
-    def discover(msg=None):
-        print("[Received]: %s" % msg.data)
+    @tornado.gen.coroutine
+    def message_handler(msg):
+        subject = msg.subject
+        data = msg.data
+        print("[Received on '{}'] : {}".format(subject, data.decode()))
 
-    sid = yield nc.subscribe("discover", "", discover)
+    # Simple async subscriber
+    sid = yield nc.subscribe("foo", cb=message_handler)
 
-    # Only interested in 2 messages.
+    # Stop receiving after 2 messages.
     yield nc.auto_unsubscribe(sid, 2)
-    yield nc.publish("discover", "A")
-    yield nc.publish("discover", "B")
-
-    # Following two messages won't be received.
-    yield nc.publish("discover", "C")
-    yield nc.publish("discover", "D")
+    yield nc.publish("foo", b'Hello')
+    yield nc.publish("foo", b'World')
+    yield nc.publish("foo", b'!!!!!')
 
     # Request/Response
+    @tornado.gen.coroutine
     def help_request_handler(msg):
-        print("[Received]: %s" % msg.data)
-        nc.publish(msg.reply, "OK, I can help!")
+        print("[Received on '{}']: {}".format(msg.subject, msg.data))
+        yield nc.publish(msg.reply, "OK, I can help!")
 
-    # Susbcription using distributed queue
-    yield nc.subscribe("help", "workers", help_request_handler)
+    # Susbcription using distributed queue named 'workers'
+    sid = yield nc.subscribe("help", "workers", help_request_handler)
 
     try:
-        # Expect a single request and timeout after 500 ms
-        response = yield nc.request(
-            "help", "Hi, need help!", timeout=0.500)
-        print("[Response]: %s" % response.data)
-    except tornado.gen.TimeoutError, e:
-        print("Timeout! Need to retry...")
-
-    # Customize number of responses to receive
-    def many_responses(msg=None):
+        # Send a request and expect a single response
+        # and trigger timeout if not faster than 200 ms.
+        msg = yield nc.request("help", b"Hi, need help!", timeout=0.2)
         print("[Response]: %s" % msg.data)
+    except tornado.gen.TimeoutError:
+        print("Timeout!")
 
-    # Async request expecting many responses
-    yield nc.request("help", "please", expected=2, cb=many_responses)
+    # Remove interest in subscription.
+    yield nc.unsubscribe(sid)
 
-    # Publish inbox
-    my_inbox = new_inbox()
-    yield nc.subscribe(my_inbox)
-    yield nc.publish_request("help", my_inbox, "I can help too!")
-
-    loop = tornado.ioloop.IOLoop.current()
-    yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
-    try:
-        start = datetime.now()
-        # Make roundtrip to the server and timeout after 1 second
-        yield nc.flush(1)
-        end = datetime.now()
-        print("Latency: %d µs" % (end.microsecond - start.microsecond))
-    except tornado.gen.TimeoutError, e:
-        print("Timeout! Roundtrip too slow...")
-
+    # Terminate connection to NATS.
+    yield nc.close()
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.current().run_sync(main)
@@ -100,7 +82,6 @@ if __name__ == '__main__':
 ## Clustered Usage
 
 ```python
-# coding: utf-8
 import tornado.ioloop
 import tornado.gen
 from datetime import timedelta
@@ -138,8 +119,8 @@ def main():
     # protocol error message from the server.
     options["error_cb"] = error_cb
 
-    # Called when we are not connected anymore to the NATS cluster.    
-    options["close_cb"] = close_cb
+    # Called when we are not connected anymore to the NATS cluster.
+    options["closed_cb"] = close_cb
 
     # Called whenever we become disconnected from a NATS server.
     options["disconnected_cb"] = disconnected_cb
@@ -173,7 +154,6 @@ if __name__ == '__main__':
 ## Wildcard Subscriptions
 
 ```python
-# coding: utf-8
 import tornado.ioloop
 import tornado.gen
 import time
@@ -183,7 +163,7 @@ from nats.io import Client as NATS
 def main():
     nc = NATS()
 
-    yield nc.connect()
+    yield nc.connect("demo.nats.io")
 
     def subscriber(msg):
         print("Msg received on [{0}]: {1}".format(msg.subject, msg.data))
@@ -204,7 +184,6 @@ if __name__ == '__main__':
 ## Advanced Usage
 
 ```python
-# coding: utf-8
 import tornado.ioloop
 import tornado.gen
 import time
@@ -272,13 +251,13 @@ if __name__ == '__main__':
 
 ### TLS
 
-Advanced [customizations options](https://docs.python.org/2/library/ssl.html#ssl.SSLContext.wrap_socket) for setting up a secure connection can be done by including them on connect:
+Advanced [customizations options](https://docs.python.org/2/library/ssl.html#ssl.SSLContext.wrap_socket)
+for setting up a secure connection can be done by including them on connect:
 
 ```python
     # Establish secure connection to the server, tls options parameterize
     # the wrap_socket available from ssl python package.
     options = {
-        "verbose": True,
         "servers": ["nats://127.0.0.1:4444"],
         "tls": {
             "cert_reqs": ssl.CERT_REQUIRED,
