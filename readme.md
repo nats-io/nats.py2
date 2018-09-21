@@ -81,7 +81,7 @@ def main():
     yield nc.subscribe(my_inbox)
     yield nc.publish_request("help", my_inbox, "I can help too!")
 
-    loop = tornado.ioloop.IOLoop.instance()
+    loop = tornado.ioloop.IOLoop.current()
     yield tornado.gen.Task(loop.add_timeout, time.time() + 1)
     try:
         start = datetime.now()
@@ -94,7 +94,7 @@ def main():
 
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)
 ```
 
 ## Clustered Usage
@@ -167,7 +167,7 @@ def main():
         print("No longer connected to NATS cluster.")
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)
 ```
 
 ## Wildcard Subscriptions
@@ -198,7 +198,7 @@ def main():
     yield tornado.gen.sleep(1)
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)
 ```
 
 ## Advanced Usage
@@ -225,7 +225,7 @@ def main():
         }
 
     # Explicitly set loop to use for the reactor.
-    options["io_loop"] = tornado.ioloop.IOLoop.instance()
+    options["loop"] = tornado.ioloop.IOLoop.current()
 
     yield nc.connect(**options)
 
@@ -267,7 +267,7 @@ def main():
             yield nc.publish("discover", "ping")
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)
 ```
 
 ### TLS

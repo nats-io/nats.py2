@@ -52,7 +52,7 @@ def main():
     options["error_cb"] = error_cb
 
     # Called when we are not connected anymore to the NATS cluster.
-    options["close_cb"] = close_cb
+    options["closed_cb"] = close_cb
 
     # Called whenever we become disconnected from a NATS server.
     options["disconnected_cb"] = disconnected_cb
@@ -81,4 +81,4 @@ def main():
 
 
 if __name__ == '__main__':
-    tornado.ioloop.IOLoop.instance().run_sync(main)
+    tornado.ioloop.IOLoop.current().run_sync(main)

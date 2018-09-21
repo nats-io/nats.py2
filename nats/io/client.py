@@ -273,7 +273,7 @@ class Client(object):
         self._error_cb = error_cb
         self._disconnected_cb = disconnected_cb
         self._reconnected_cb = reconnected_cb
-        self._loop = io_loop or loop or tornado.ioloop.IOLoop.instance()
+        self._loop = io_loop or loop or tornado.ioloop.IOLoop.current()
         self._max_read_buffer_size = max_read_buffer_size
         self._max_write_buffer_size = max_write_buffer_size
         self._read_chunk_size = read_chunk_size
@@ -914,8 +914,7 @@ class Client(object):
                 self._socket, do_handshake_on_connect=False, **tls_opts)
 
             # Use the TLS stream instead from now
-            self.io = tornado.iostream.SSLIOStream(
-                self._socket, io_loop=self._loop)
+            self.io = tornado.iostream.SSLIOStream(self._socket)
             self.io.set_close_callback(self._process_op_err)
             self.io._do_ssl_handshake()
 
