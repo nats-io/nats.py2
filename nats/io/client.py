@@ -220,6 +220,7 @@ class Client(object):
                 name=None,
                 pedantic=False,
                 verbose=False,
+                no_echo=False,
 
                 # Reconnect logic
                 allow_reconnect=True,
@@ -266,6 +267,7 @@ class Client(object):
         self.options["verbose"] = verbose
         self.options["pedantic"] = pedantic
         self.options["name"] = name
+        self.options["no_echo"] = no_echo
         self.options["max_outstanding_pings"] = max_outstanding_pings
         self.options["max_reconnect_attempts"] = max_reconnect_attempts
         self.options["reconnect_time_wait"] = reconnect_time_wait
@@ -395,6 +397,8 @@ class Client(object):
                     options["pass"] = self._current_server.uri.password
         if self.options["name"] is not None:
             options["name"] = self.options["name"]
+        if self.options["no_echo"] is not None:
+            options["echo"] = not self.options["no_echo"]
 
         args = json.dumps(options, sort_keys=True)
         return CONNECT_PROTO.format(CONNECT_OP, args, _CRLF_)
