@@ -178,8 +178,9 @@ class ClientUtilsTest(unittest.TestCase):
         nc.options["pedantic"] = False
         nc.options["auth_required"] = False
         nc.options["name"] = None
+        nc.options["no_echo"] = False
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": false, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"echo": true, "lang": "python2", "pedantic": false, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     def test_default_connect_command_with_name(self):
@@ -188,8 +189,9 @@ class ClientUtilsTest(unittest.TestCase):
         nc.options["pedantic"] = False
         nc.options["auth_required"] = False
         nc.options["name"] = "secret"
+        nc.options["no_echo"] = False
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "name": "secret", "pedantic": false, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"echo": true, "lang": "python2", "name": "secret", "pedantic": false, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     def tests_generate_new_inbox(self):
@@ -245,7 +247,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertTrue(len(info_keys) > 0)
 
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": false, "protocol": 1, "verbose": true, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"echo": true, "lang": "python2", "pedantic": false, "protocol": 1, "verbose": true, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     @tornado.testing.gen_test
@@ -257,7 +259,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
         self.assertTrue(len(info_keys) > 0)
 
         got = nc.connect_command()
-        expected = 'CONNECT {"lang": "python2", "pedantic": true, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
+        expected = 'CONNECT {"echo": true, "lang": "python2", "pedantic": true, "protocol": 1, "verbose": false, "version": "%s"}\r\n' % __version__
         self.assertEqual(expected, got)
 
     @tornado.testing.gen_test
@@ -1437,6 +1439,52 @@ class ClientTest(tornado.testing.AsyncTestCase):
         for sub in subs:
             self.assertEqual(sub.closed, True)
 
+    @tornado.testing.gen_test(timeout=10)
+    def test_subscribe_no_echo(self):
+        nc = NATS()
+        msgs = []
+
+        nc2 = NATS()
+        msgs2 = []
+
+        @tornado.gen.coroutine
+        def subscription_handler(msg):
+            msgs.append(msg)
+
+        @tornado.gen.coroutine
+        def subscription_handler2(msg):
+            msgs2.append(msg)
+
+        yield nc.connect(loop=self.io_loop, no_echo=True)
+        sid = yield nc.subscribe("foo", cb=subscription_handler)
+        yield nc.flush()
+
+        yield nc2.connect(loop=self.io_loop, no_echo=False)
+        sid2 = yield nc2.subscribe("foo", cb=subscription_handler2)
+        yield nc2.flush()
+
+        payload = b'hello world'
+        for i in range(0, 10):
+            yield nc.publish("foo", payload)
+        yield nc.flush()
+
+        # Wait a bit for message to be received.
+        yield tornado.gen.sleep(0.5)
+
+        self.assertEqual(0, len(msgs))
+        self.assertEqual(10, len(msgs2))
+        self.assertEqual(0, nc._subs[sid].received)
+        self.assertEqual(10, nc2._subs[sid].received)
+        yield nc.close()
+        yield nc2.close()
+        self.assertEqual(0,  nc.stats['in_msgs'])
+        self.assertEqual(0, nc.stats['in_bytes'])
+        self.assertEqual(10,  nc.stats['out_msgs'])
+        self.assertEqual(110, nc.stats['out_bytes'])
+        self.assertEqual(10,  nc2.stats['in_msgs'])
+        self.assertEqual(110, nc2.stats['in_bytes'])
+        self.assertEqual(0,  nc2.stats['out_msgs'])
+        self.assertEqual(0, nc2.stats['out_bytes'])
 
 class ClientAuthTest(tornado.testing.AsyncTestCase):
     def setUp(self):
@@ -1744,7 +1792,6 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
 
         with (self.assertRaises(ErrConnectionClosed)):
             yield nc.timed_request("hello", "world")
-
 
 class ClientTLSTest(tornado.testing.AsyncTestCase):
     def setUp(self):
