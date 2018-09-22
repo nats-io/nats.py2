@@ -1283,7 +1283,7 @@ class Client(object):
             raise ErrConnectionReconnecting
 
         # Drain a single subscription
-        if sid is not None:    
+        if sid is not None:
             raise tornado.gen.Return(self._drain_sub(sid))
 
         # Start draining the subscriptions

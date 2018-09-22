@@ -744,7 +744,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
             yield nc.publish("help.%s" % i, payload)
 
         # Relinquish control often to unblock the flusher
-        yield tornado.gen.moment
+        yield tornado.gen.sleep(0)
         yield nc.publish("help.500", "A")
 
         # Wait for the future to yield after receiving all the messages.
@@ -803,7 +803,7 @@ class ClientTest(tornado.testing.AsyncTestCase):
             yield nc.publish("help.%s" % i, payload)
             if i % 10 == 0:
                 # Relinquish control often to unblock the flusher
-                yield tornado.gen.moment
+                yield tornado.gen.sleep(0)
 
         yield nc.publish("help.500", "A")
 
@@ -2584,7 +2584,7 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
             yield nc.publish("foo", b'hi')
 
             # Relinquish control so that messages are processed.
-            yield tornado.gen.moment
+            yield tornado.gen.sleep(0)
         yield nc.flush()
 
         sub = nc._subs[sid]
@@ -2598,7 +2598,7 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
             yield nc.publish("foo", b'hi')
 
             # Relinquish control so that messages are processed.
-            yield tornado.gen.moment
+            yield tornado.gen.sleep(0)
 
         # No more messages should have been processed.
         after_drain = sub.pending_queue.qsize()
@@ -2615,11 +2615,15 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
         errors = []
         drain_done = tornado.concurrent.Future()
 
-        @tornado.gen.coroutine
+        def disconnected_cb():
+            pass
+
+        def reconnected_cb():
+            pass
+
         def error_cb(e):
             errors.append(e)
 
-        @tornado.gen.coroutine
         def closed_cb():
             drain_done.set_result(True)
 
@@ -2627,6 +2631,8 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
                          loop=self.io_loop,
                          closed_cb=closed_cb,
                          error_cb=error_cb,
+                         reconnected_cb=reconnected_cb,
+                         disconnected_cb=disconnected_cb,
                          )
 
         nc2 = NATS()
@@ -2673,13 +2679,13 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
             msgs.append(msg)
 
         yield nc2.subscribe("my-replies.*", cb=replies)
-        for i in range(0, 201):
+        for i in range(0, 51):
             yield nc2.publish_request("foo", "my-replies.AAA", b'help')
             yield nc2.publish_request("bar", "my-replies.BBB", b'help')
             yield nc2.publish_request("quux", "my-replies.CCC", b'help')
 
             # Relinquish control so that messages are processed.
-            yield tornado.gen.moment
+            yield tornado.gen.sleep(0)
         yield nc2.flush()
 
         sub_foo = nc._subs[sid_foo]
@@ -2696,28 +2702,14 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
         # Let the draining task a bit of time to run...
         yield tornado.gen.sleep(0.5)
 
-        # Subscribe and request cause errors at this point.
-        while True:
-            if nc.is_draining and not nc.is_closed:
-                with self.assertRaises(ErrConnectionDraining):
-                    yield nc.subscribe("hello", cb=foo_handler)
-                with self.assertRaises(ErrConnectionDraining):
-                    yield nc.request("hello", b"world")
-                break
-            yield tornado.gen.sleep(0.1)
-
         # Should be no-op or bail if connection closed.
         yield nc.drain()
 
         # State should be closed here already,
         yield tornado.gen.with_timeout(timedelta(seconds=10), drain_done)
-
-        self.assertEqual(sub_foo.pending_queue.qsize(), 0)
-        self.assertEqual(sub_bar.pending_queue.qsize(), 0)
-        self.assertEqual(sub_quux.pending_queue.qsize(), 0)
         self.assertEqual(0, len(nc._subs.items()))
         self.assertEqual(1, len(nc2._subs.items()))
-        self.assertTrue(len(msgs) > 599)
+        self.assertTrue(len(msgs) > 150)
 
         # No need to close first connection since drain reaches
         # the closed state.
@@ -2775,7 +2767,7 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
             yield nc2.publish_request("quux", "my-replies.CCC", b'help')
 
             # Relinquish control so that messages are processed.
-            yield tornado.gen.moment
+            yield tornado.gen.sleep(0)
         yield nc2.flush()
 
         # Drain and close the connection. In case of timeout then
