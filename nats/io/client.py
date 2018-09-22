@@ -224,6 +224,9 @@ class Client(object):
                 pedantic=False,
                 verbose=False,
                 no_echo=False,
+                user=None,
+                password=None,
+                token=None,
 
                 # Reconnect logic
                 allow_reconnect=True,
@@ -272,6 +275,9 @@ class Client(object):
         self.options["pedantic"] = pedantic
         self.options["name"] = name
         self.options["no_echo"] = no_echo
+        self.options["user"] = user
+        self.options["password"] = password
+        self.options["token"] = token
         self.options["max_outstanding_pings"] = max_outstanding_pings
         self.options["max_reconnect_attempts"] = max_reconnect_attempts
         self.options["reconnect_time_wait"] = reconnect_time_wait
@@ -336,7 +342,7 @@ class Client(object):
 
         # Prepare the ping pong interval.
         self._ping_timer = tornado.ioloop.PeriodicCallback(
-            self._send_ping, self.options["ping_interval"] * 1000)
+            self._ping_interval, self.options["ping_interval"] * 1000)
         self._ping_timer.start()
 
     @tornado.gen.coroutine
@@ -366,15 +372,11 @@ class Client(object):
 
     @tornado.gen.coroutine
     def _send_ping(self, future=None):
-        if self._pings_outstanding > self.options["max_outstanding_pings"]:
-            yield self._process_op_err(ErrStaleConnection)
-        else:
-            yield self.send_command(PING_PROTO)
-            yield self._flush_pending()
-            if future is None:
-                future = tornado.concurrent.Future()
-            self._pings_outstanding += 1
-            self._pongs.append(future)
+        if future is None:
+            future = tornado.concurrent.Future()
+        self._pongs.append(future)
+        yield self.send_command(PING_PROTO)
+        yield self._flush_pending()
 
     def connect_command(self):
         '''
@@ -395,7 +397,12 @@ class Client(object):
             if self._server_info["auth_required"] == True:
                 # In case there is no password, then consider handle
                 # sending a token instead.
-                if self._current_server.uri.password is None:
+                if self.options["user"] is not None and self.options["password"] is not None:
+                    options["user"] = self.options["user"]
+                    options["pass"] = self.options["password"]
+                elif self.options["token"] is not None:
+                    options["auth_token"] = self.options["token"]
+                elif self._current_server.uri.password is None:
                     options["auth_token"] = self._current_server.uri.username
                 else:
                     options["user"] = self._current_server.uri.username
@@ -494,8 +501,13 @@ class Client(object):
             result = yield tornado.gen.with_timeout(
                 timedelta(seconds=timeout), future)
         except tornado.gen.TimeoutError:
-            # Set the future to False so it can be ignored in _process_pong.
+            # Set the future to False so it can be ignored in _process_pong,
+            # and try to remove from the list of pending pongs.
             future.set_result(False)
+            for i, pong_future in enumerate(self._pongs):
+                if pong_future == future:
+                    del self._pongs[i]
+                    break
             raise
         raise tornado.gen.Return(result)
 
@@ -839,14 +851,15 @@ class Client(object):
         Here we want to find the oldest PONG future that is still running.  If the
         flush PING-PONG already timed out, then just drop those old items.
         """
-        while len(self._pongs) > 0:
+        if len(self._pongs) > 0:
             future = self._pongs.pop(0)
             self._pongs_received += 1
-            self._pings_outstanding -= 1
+            if self._pings_outstanding > 0:
+                self._pings_outstanding -= 1
+
             # Only exit loop if future still running (hasn't exceeded flush timeout).
             if future.running():
                 future.set_result(True)
-                break
 
     @tornado.gen.coroutine
     def _process_msg(self, sid, subject, reply, data):
@@ -967,7 +980,7 @@ class Client(object):
         self._pongs = []
         self._pings_outstanding = 0
         self._ping_timer = tornado.ioloop.PeriodicCallback(
-            self._send_ping, self.options["ping_interval"] * 1000)
+            self._ping_interval, self.options["ping_interval"] * 1000)
         self._ping_timer.start()
 
         # Queue and flusher for coalescing writes to the server.
@@ -1272,7 +1285,7 @@ class Client(object):
             raise ErrConnectionReconnecting
 
         # Drain a single subscription
-        if sid is not None:    
+        if sid is not None:
             raise tornado.gen.Return(self._drain_sub(sid))
 
         # Start draining the subscriptions
@@ -1371,6 +1384,15 @@ class Client(object):
             if srv.discovered:
                 servers.append(srv)
         return servers
+
+    @tornado.gen.coroutine
+    def _ping_interval(self):
+        if not self.is_connected:
+            return
+        self._pings_outstanding += 1
+        if self._pings_outstanding > self.options["max_outstanding_pings"]:
+            yield self._process_op_err(ErrStaleConnection)
+        yield self._send_ping()
 
     @tornado.gen.coroutine
     def _read_loop(self, data=''):
