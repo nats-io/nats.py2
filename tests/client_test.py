@@ -2342,25 +2342,25 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
         conf = """
         cluster {
           routes = [
-            nats-route://127.0.0.1:6222
+            nats-route://127.0.0.1:6232
           ]
         }
         """
 
         nc = Client()
         options = {
-            "servers": ["nats://127.0.0.1:4222"],
+            "servers": ["nats://127.0.0.1:4232"],
             "dont_randomize": True,
-            "io_loop": self.io_loop,
+            "loop": self.io_loop,
         }
 
         with Gnatsd(
-                port=4222, http_port=8222, cluster_port=6222,
+                port=4232, http_port=8232, cluster_port=6232,
                 conf=conf) as nats1:
             yield nc.connect(**options)
-            yield tornado.gen.sleep(0.5)
+            yield tornado.gen.sleep(1)
             with Gnatsd(
-                    port=4223, http_port=8223, cluster_port=6223,
+                    port=4233, http_port=8233, cluster_port=6233,
                     conf=conf) as nats2:
                 yield tornado.gen.sleep(1)
                 srvs = []
@@ -2370,13 +2370,13 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                 self.assertEqual(len(srvs), 2)
 
                 with Gnatsd(
-                        port=4224, http_port=8224, cluster_port=6224,
+                        port=4234, http_port=8234, cluster_port=6234,
                         conf=conf) as nats3:
                     yield tornado.gen.sleep(1)
                     for item in nc._server_pool:
                         if item.uri.port not in srvs:
                             srvs.append(item.uri.port)
-                    self.assertEqual([4222, 4223, 4224], srvs)
+                    self.assertEqual([4232, 4233, 4234], srvs)
         yield nc.close()
 
     @tornado.testing.gen_test(timeout=15)
