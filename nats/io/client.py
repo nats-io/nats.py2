@@ -61,6 +61,7 @@ MAX_OUTSTANDING_PINGS = 2
 MAX_RECONNECT_ATTEMPTS = 60
 RECONNECT_TIME_WAIT = 2  # seconds
 DEFAULT_CONNECT_TIMEOUT = 2  # seconds
+DEFAULT_DRAIN_TIMEOUT = 30 # seconds
 
 DEFAULT_READ_BUFFER_SIZE = 1024 * 1024 * 10
 DEFAULT_WRITE_BUFFER_SIZE = None
@@ -145,6 +146,8 @@ class Client(object):
     CLOSED = 2
     RECONNECTING = 3
     CONNECTING = 4
+    DRAINING_SUBS = 5
+    DRAINING_PUBS = 6
 
     def __repr__(self):
         return "<nats client v{}>".format(__version__)
@@ -237,6 +240,7 @@ class Client(object):
                 max_write_buffer_size=DEFAULT_WRITE_BUFFER_SIZE,
                 read_chunk_size=DEFAULT_READ_CHUNK_SIZE,
                 tcp_nodelay=False,
+                drain_timeout=DEFAULT_DRAIN_TIMEOUT,
                 ):
         """
         Establishes a connection to a NATS server.
@@ -278,6 +282,7 @@ class Client(object):
         # In seconds
         self.options["connect_timeout"] = connect_timeout
         self.options["ping_interval"] = ping_interval
+        self.options["drain_timeout"] = drain_timeout
 
         # TLS customizations
         if tls is not None:
@@ -523,6 +528,9 @@ class Client(object):
           <<- MSG hello 2 _INBOX.gnKUg9bmAHANjxIsDiQsWO 5
 
         """
+        if self.is_draining:
+            raise ErrConnectionDraining
+
         # If callback given then continue to use old style.
         if cb is not None:
             next_inbox = INBOX_PREFIX[:]
@@ -653,6 +661,9 @@ class Client(object):
         """
         if self.is_closed:
             raise ErrConnectionClosed
+
+        if self.is_draining:
+            raise ErrConnectionDraining
 
         self._ssid += 1
         sid = self._ssid
@@ -794,6 +805,12 @@ class Client(object):
         blocks in order to be able to define request/response semantics via pub/sub
         by announcing the server limited interest a priori.
         """
+        if self.is_draining:
+            raise ErrConnectionDraining
+        yield self._unsubscribe(sid, limit)
+
+    @tornado.gen.coroutine
+    def _unsubscribe(self, sid, limit=1):
         b_limit = b''
         if limit > 0:
             b_limit = ("%d" % limit).encode()
@@ -1015,11 +1032,19 @@ class Client(object):
 
     @property
     def is_connected(self):
-        return self._status == Client.CONNECTED
+        return self._status == Client.CONNECTED or self.is_draining
 
     @property
     def is_connecting(self):
         return self._status == Client.CONNECTING
+
+    @property
+    def is_draining(self):
+        return (self._status == Client.DRAINING_SUBS or self._status == Client.DRAINING_PUBS)
+
+    @property
+    def is_draining_pubs(self):
+        return self._status == Client.DRAINING_PUBS
 
     @tornado.gen.coroutine
     def _process_op_err(self, err=None):
@@ -1224,6 +1249,84 @@ class Client(object):
                 self._disconnected_cb()
             if self._closed_cb is not None:
                 self._closed_cb()
+
+    @tornado.gen.coroutine
+    def drain(self, sid=None):
+        """
+        Drain will put a connection into a drain state. All subscriptions will
+        immediately be put into a drain state. Upon completion, the publishers
+        will be drained and can not publish any additional messages. Upon draining
+        of the publishers, the connection will be closed. Use the `closed_cb'
+        option to know when the connection has moved from draining to closed.
+
+        If a sid is passed, just the subscription with that sid will be drained
+        without closing the connection.
+        """
+        if self.is_draining:
+            return
+
+        if self.is_closed:
+            raise ErrConnectionClosed
+
+        if self.is_connecting or self.is_reconnecting:
+            raise ErrConnectionReconnecting
+
+        # Drain a single subscription
+        if sid is not None:    
+            raise tornado.gen.Return(self._drain_sub(sid))
+
+        # Start draining the subscriptions
+        self._status = Client.DRAINING_SUBS
+
+        drain_tasks = []
+        for ssid, sub in self._subs.items():
+            task = self._drain_sub(ssid)
+            drain_tasks.append(task)
+
+        # Wait for subscriptions to stop handling messages.
+        drain_is_done = tornado.gen.multi(drain_tasks)
+        try:
+            yield tornado.gen.with_timeout(
+                timedelta(seconds=self.options["drain_timeout"]),
+                drain_is_done,
+                )
+        except tornado.gen.TimeoutError:
+            if self._error_cb is not None:
+                yield self._error_cb(ErrDrainTimeout())
+        finally:
+            self._status = Client.DRAINING_PUBS
+            yield self.flush()
+            yield self.close()
+
+    def _drain_sub(self, sid):
+        sub = self._subs.get(sid)
+        if sub is None:
+            raise ErrBadSubscription
+
+        drained = tornado.concurrent.Future()
+
+        # Draining happens async under a task per sub which can be awaited.
+        @tornado.gen.coroutine
+        def drain_subscription():
+            # Announce server that no longer want to receive more
+            # messages in this sub and just process the ones remaining.
+            yield self._unsubscribe(sid, limit=0)
+            yield self.flush()
+
+            # Wait until no more messages are left, then cancel the
+            # subscription task.
+            while sub.pending_queue.qsize() > 0:
+                yield tornado.gen.sleep(0.1)
+
+            # Subscription is done and won't be receiving further
+            # messages so can throw it away now.
+            self._subs.pop(sid, None)
+            self._remove_subscription(sub)
+            drained.set_result(True)
+        self._loop.spawn_callback(drain_subscription)
+
+        # Return future which can be used to await draining is done.
+        return drained
 
     @tornado.gen.coroutine
     def _process_err(self, err=None):
