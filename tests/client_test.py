@@ -2379,6 +2379,87 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                     self.assertEqual([4222, 4223, 4224], srvs)
         yield nc.close()
 
+    @tornado.testing.gen_test(timeout=15)
+    def test_servers_discovery_auth_reconnect(self):
+        conf = """
+        cluster {
+          routes = [
+            nats-route://127.0.0.1:6222
+          ]
+        }
+
+        authorization {
+          user = foo
+          pass = bar
+        }
+        """
+
+        reconnected_future = tornado.concurrent.Future()
+
+        @tornado.gen.coroutine
+        def reconnected_cb():
+            reconnected_future.set_result(True)
+
+        nc = Client()
+        options = {
+            "servers": ["nats://127.0.0.1:4222"],
+            "loop": self.io_loop,
+            "user": "foo",
+            "password": "bar",
+            "reconnected_cb": reconnected_cb,
+        }
+
+        with Gnatsd(port=4222, http_port=8222, cluster_port=6222, conf=conf) as nats1:
+            yield nc.connect(**options)
+            yield tornado.gen.sleep(1)
+            initial_uri = nc.connected_url
+            with Gnatsd(port=4223, http_port=8223, cluster_port=6223, conf=conf) as nats2:
+                yield tornado.gen.sleep(1)
+                srvs = {}
+                for item in nc._server_pool:
+                    srvs[item.uri.port] = True
+                self.assertEqual(len(srvs.keys()), 2)
+
+                with Gnatsd(port=4224, http_port=8224, cluster_port=6224, conf=conf) as nats3:
+                    yield tornado.gen.sleep(1)
+                    for item in nc._server_pool:
+                        srvs[item.uri.port] = True
+                    self.assertEqual(3, len(srvs.keys()))
+
+                    srvs = {}
+                    for item in nc.discovered_servers:
+                        srvs[item.uri.port] = True
+                    self.assertTrue(2 <= len(srvs.keys()) <= 3)
+
+                    srvs = {}
+                    for item in nc.servers:
+                        srvs[item.uri.port] = True
+                    self.assertEqual(3, len(srvs.keys()))
+
+                    # Terminate the first server and wait for reconnect
+                    nats1.finish()
+
+                    yield tornado.gen.with_timeout(
+                        timedelta(seconds=1), reconnected_future)
+
+                    # Check if the connection is ok
+                    received = tornado.concurrent.Future()
+
+                    @tornado.gen.coroutine
+                    def handler(msg):
+                        received.set_result(msg)
+
+                    yield nc.subscribe("foo", cb=handler)
+                    yield nc.flush()
+                    yield nc.publish("foo", b'bar')
+
+                    yield tornado.gen.with_timeout(
+                        timedelta(seconds=1), received)
+
+                    final_uri = nc.connected_url
+                    self.assertNotEqual(initial_uri, final_uri)
+        yield nc.close()
+
 class ClientDrainTest(tornado.testing.AsyncTestCase):
     def setUp(self):
         print("\n=== RUN {0}.{1}".format(self.__class__.__name__,
