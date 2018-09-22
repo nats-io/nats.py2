@@ -1313,9 +1313,9 @@ class Client(object):
             yield self._unsubscribe(sid, limit=0)
             yield self.flush()
 
-            # Wait until no more messages are left, then cancel the
-            # subscription task.
-            while sub.pending_queue.qsize() > 0:
+            # Wait until no more messages are left or enough received,
+            # then cancel the subscription task.
+            while sub.pending_queue.qsize() > 0 and not sub.closed:
                 yield tornado.gen.sleep(0.1)
 
             # Subscription is done and won't be receiving further
