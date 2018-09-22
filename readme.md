@@ -267,7 +267,7 @@ yield nc.connect(**options)
 The client will also automatically create a TLS context with defaults
 in case it detects that it should connect securely against the server:
 
-```
+```python
 yield nc.connect("tls://demo.nats.io:4443")
 ```
 
