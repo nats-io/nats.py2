@@ -2697,10 +2697,14 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
         yield tornado.gen.sleep(0.5)
 
         # Subscribe and request cause errors at this point.
-        with self.assertRaises(ErrConnectionDraining):
-            yield nc.subscribe("hello", cb=foo_handler)
-        with self.assertRaises(ErrConnectionDraining):
-            yield nc.request("hello", b"world")
+        while True:
+            if nc.is_draining and not nc.is_closed:
+                with self.assertRaises(ErrConnectionDraining):
+                    yield nc.subscribe("hello", cb=foo_handler)
+                with self.assertRaises(ErrConnectionDraining):
+                    yield nc.request("hello", b"world")
+                break
+            yield tornado.gen.sleep(0.1)
 
         # Should be no-op or bail if connection closed.
         yield nc.drain()
