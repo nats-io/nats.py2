@@ -342,7 +342,7 @@ class Client(object):
 
         # Prepare the ping pong interval.
         self._ping_timer = tornado.ioloop.PeriodicCallback(
-            self._send_ping, self.options["ping_interval"] * 1000)
+            self._ping_interval, self.options["ping_interval"] * 1000)
         self._ping_timer.start()
 
     @tornado.gen.coroutine
@@ -372,15 +372,11 @@ class Client(object):
 
     @tornado.gen.coroutine
     def _send_ping(self, future=None):
-        if self._pings_outstanding > self.options["max_outstanding_pings"]:
-            yield self._process_op_err(ErrStaleConnection)
-        else:
-            yield self.send_command(PING_PROTO)
-            yield self._flush_pending()
-            if future is None:
-                future = tornado.concurrent.Future()
-            self._pings_outstanding += 1
-            self._pongs.append(future)
+        if future is None:
+            future = tornado.concurrent.Future()
+        self._pongs.append(future)
+        yield self.send_command(PING_PROTO)
+        yield self._flush_pending()
 
     def connect_command(self):
         '''
@@ -850,14 +846,13 @@ class Client(object):
         Here we want to find the oldest PONG future that is still running.  If the
         flush PING-PONG already timed out, then just drop those old items.
         """
-        while len(self._pongs) > 0:
+        if len(self._pongs) > 0:
             future = self._pongs.pop(0)
             self._pongs_received += 1
             self._pings_outstanding -= 1
             # Only exit loop if future still running (hasn't exceeded flush timeout).
             if future.running():
                 future.set_result(True)
-                break
 
     @tornado.gen.coroutine
     def _process_msg(self, sid, subject, reply, data):
@@ -978,7 +973,7 @@ class Client(object):
         self._pongs = []
         self._pings_outstanding = 0
         self._ping_timer = tornado.ioloop.PeriodicCallback(
-            self._send_ping, self.options["ping_interval"] * 1000)
+            self._ping_interval, self.options["ping_interval"] * 1000)
         self._ping_timer.start()
 
         # Queue and flusher for coalescing writes to the server.
@@ -1382,6 +1377,15 @@ class Client(object):
             if srv.discovered:
                 servers.append(srv)
         return servers
+
+    @tornado.gen.coroutine
+    def _ping_interval(self):
+        if not self.is_connected:
+            return
+        self._pings_outstanding += 1
+        if self._pings_outstanding > self.options["max_outstanding_pings"]:
+            yield self._process_op_err(ErrStaleConnection)
+        yield self._send_ping()
 
     @tornado.gen.coroutine
     def _read_loop(self, data=''):

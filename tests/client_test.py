@@ -2515,30 +2515,6 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
         yield nc.subscribe("bar", cb=cb)
         yield nc.subscribe("quux", cb=cb)
         yield nc.drain()
-        self.assertEqual(0, len(nc._subs))
-        self.assertTrue(True, nc.is_closed)
-
-    @tornado.testing.gen_test
-    def test_drain_closes_connection(self):
-        nc = Client()
-        future = tornado.concurrent.Future()
-
-        @tornado.gen.coroutine
-        def closed_cb():
-            future.set_result(True)
-
-        @tornado.gen.coroutine
-        def cb(msg):
-            pass
-
-        yield nc.connect("127.0.0.1:4225",
-                         loop=self.io_loop,
-                         closed_cb=closed_cb,
-                         )
-        yield nc.subscribe("foo", cb=cb)
-        yield nc.subscribe("bar", cb=cb)
-        yield nc.subscribe("quux", cb=cb)
-        yield nc.drain()
         yield tornado.gen.with_timeout(timedelta(seconds=1), future)
         self.assertEqual(0, len(nc._subs))
         self.assertTrue(True, nc.is_closed)
@@ -2679,7 +2655,7 @@ class ClientDrainTest(tornado.testing.AsyncTestCase):
             msgs.append(msg)
 
         yield nc2.subscribe("my-replies.*", cb=replies)
-        for i in range(0, 51):
+        for i in range(0, 201):
             yield nc2.publish_request("foo", "my-replies.AAA", b'help')
             yield nc2.publish_request("bar", "my-replies.BBB", b'help')
             yield nc2.publish_request("quux", "my-replies.CCC", b'help')
