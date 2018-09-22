@@ -38,6 +38,7 @@ class ErrJsonParse(NatsError):
     pass
 
 
+
 class ErrSlowConsumer(NatsError):
     """
     The client becomes a slow consumer if the server ends up
@@ -78,3 +79,19 @@ class ErrServerConnect(socket.error):
     Raised when it could not establish a connection with server.
     """
     pass
+
+class ErrBadSubscription(NatsError):
+    def __str__(self):
+        return "nats: Invalid Subscription"
+
+class ErrDrainTimeout(NatsError):
+    def __str__(self):
+        return "nats: Draining Connection Timed Out"
+
+class ErrConnectionDraining(NatsError):
+     def __str__(self):
+         return "nats: Connection Draining"
+
+class ErrConnectionReconnecting(NatsError):
+    def __str__(self):
+        return "nats: Connection Reconnecting"

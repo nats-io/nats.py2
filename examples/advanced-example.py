@@ -15,68 +15,58 @@
 
 import tornado.ioloop
 import tornado.gen
-import time
 from nats.io import Client as NATS
-
+from nats.io.errors import ErrNoServers
 
 @tornado.gen.coroutine
 def main():
     nc = NATS()
 
-    # Set pool servers in the cluster and give a name to the client.
-    options = {
-        "name":
-        "worker",
-        "servers": [
-            "nats://secret:pass@127.0.0.1:4222",
-            "nats://secret:pass@127.0.0.1:4223",
-            "nats://secret:pass@127.0.0.1:4224"
-        ]
-    }
-
-    # Explicitly set loop to use for the reactor.
-    options["io_loop"] = tornado.ioloop.IOLoop.instance()
-
-    yield nc.connect(**options)
+    try:
+        # Setting explicit list of servers in a cluster and
+        # max reconnect retries.
+        servers = [
+            "nats://127.0.0.1:4222",
+            "nats://127.0.0.1:4223",
+            "nats://127.0.0.1:4224"
+            ]
+        yield nc.connect(max_reconnect_attempts=2, servers=servers)
+    except ErrNoServers:
+        print("No servers available!")
+        return
 
     @tornado.gen.coroutine
-    def subscriber(msg):
-        yield nc.publish("discover", "pong")
+    def message_handler(msg):
+        subject = msg.subject
+        reply = msg.reply
+        data = msg.data.decode()
+        for i in range(0, 20):
+            yield nc.publish(reply, "i={i}".format(i=i).encode())
 
-    yield nc.subscribe("discover", "", subscriber)
+    yield nc.subscribe("help.>", cb=message_handler)
 
     @tornado.gen.coroutine
-    def async_subscriber(msg):
-        # First request takes longer, while others are still processed.
-        if msg.subject == "requests.1":
-            yield tornado.gen.sleep(0.5)
-        print("Processed request [{0}]: {1}".format(msg.subject, msg))
+    def request_handler(msg):
+        subject = msg.subject
+        reply = msg.reply
+        data = msg.data.decode()
+        print("Received a message on '{subject} {reply}': {data}".format(
+            subject=subject, reply=reply, data=data))
 
-    # Create asynchronous subscription and make roundtrip to server
-    # to ensure that subscriptions have been processed.
-    yield nc.subscribe_async("requests.*", cb=async_subscriber)
+    # Signal the server to stop sending messages after we got 10 already.
+    yield nc.request(
+        "help.please", b'help', expected=10, cb=request_handler)
+
+    # Flush connection to server, returns when all messages have been processed.
+    # It raises a timeout if roundtrip takes longer than 1 second.
     yield nc.flush()
-    for i in range(1, 10):
-        yield nc.publish("requests.{0}".format(i), "example")
+
+    # Drain gracefully closes the connection, allowing all subscribers to
+    # handle any pending messages inflight that the server may have sent.
+    yield nc.drain()
+
+    # Drain works async in the background.
     yield tornado.gen.sleep(1)
-
-    while True:
-        # Confirm stats to implement basic throttling logic.
-        sent = nc.stats["out_msgs"]
-        received = nc.stats["in_msgs"]
-        delta = sent - received
-
-        if delta > 2000:
-            print("Waiting... Sent: {0}, Received: {1}, Delta: {2}".format(
-                sent, received, delta))
-            yield tornado.gen.sleep(1)
-
-        if nc.stats["reconnects"] > 10:
-            print("[WARN] Reconnected over 10 times!")
-
-        for i in range(1000):
-            yield nc.publish("discover", "ping")
-
 
 if __name__ == '__main__':
     tornado.ioloop.IOLoop.instance().run_sync(main)

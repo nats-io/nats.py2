@@ -1937,7 +1937,7 @@ class ClientTLSTest(tornado.testing.AsyncTestCase):
                 self.disconnected_cb_called = True
                 if not self.disconnected_future.done():
                     self.disconnected_future.set_result(True)
-                    
+
             def reconnected_cb(self):
                 self.reconnected_cb_called = True
                 if not self.reconnected_future.done():
@@ -2341,6 +2341,332 @@ class ClientClusteringDiscoveryTest(tornado.testing.AsyncTestCase):
                     self.assertEqual([4222, 4223, 4224], srvs)
         yield nc.close()
 
+class ClientDrainTest(tornado.testing.AsyncTestCase):
+    def setUp(self):
+        print("\n=== RUN {0}.{1}".format(self.__class__.__name__,
+                                         self._testMethodName))
+        self.threads = []
+        self.server_pool = []
+
+        server = Gnatsd(port=4225, http_port=8225)
+        self.server_pool.append(server)
+
+        for gnatsd in self.server_pool:
+            t = threading.Thread(target=gnatsd.start)
+            self.threads.append(t)
+            t.start()
+
+        http = tornado.httpclient.HTTPClient()
+        while True:
+            try:
+                response = http.fetch('http://127.0.0.1:8225/varz')
+                if response.code == 200:
+                    break
+                continue
+            except:
+                time.sleep(0.1)
+                continue
+        super(ClientDrainTest, self).setUp()
+
+    def tearDown(self):
+        for gnatsd in self.server_pool:
+            gnatsd.finish()
+        for t in self.threads:
+            t.join()
+        super(ClientDrainTest, self).tearDown()
+
+    @tornado.testing.gen_test
+    def test_drain_closes_connection(self):
+        nc = Client()
+        future = tornado.concurrent.Future()
+
+        @tornado.gen.coroutine
+        def closed_cb():
+            future.set_result(True)
+
+        @tornado.gen.coroutine
+        def cb(msg):
+            pass
+
+        yield nc.connect("127.0.0.1:4225",
+                         loop=self.io_loop,
+                         closed_cb=closed_cb,
+                         )
+        yield nc.subscribe("foo", cb=cb)
+        yield nc.subscribe("bar", cb=cb)
+        yield nc.subscribe("quux", cb=cb)
+        yield nc.drain()
+        self.assertEqual(0, len(nc._subs))
+        self.assertTrue(True, nc.is_closed)
+
+    @tornado.testing.gen_test
+    def test_drain_closes_connection(self):
+        nc = Client()
+        future = tornado.concurrent.Future()
+
+        @tornado.gen.coroutine
+        def closed_cb():
+            future.set_result(True)
+
+        @tornado.gen.coroutine
+        def cb(msg):
+            pass
+
+        yield nc.connect("127.0.0.1:4225",
+                         loop=self.io_loop,
+                         closed_cb=closed_cb,
+                         )
+        yield nc.subscribe("foo", cb=cb)
+        yield nc.subscribe("bar", cb=cb)
+        yield nc.subscribe("quux", cb=cb)
+        yield nc.drain()
+        yield tornado.gen.with_timeout(timedelta(seconds=1), future)
+        self.assertEqual(0, len(nc._subs))
+        self.assertTrue(True, nc.is_closed)
+
+    @tornado.testing.gen_test
+    def test_drain_invalid_subscription(self):
+        nc = NATS()
+
+        yield nc.connect("127.0.0.1:4225",
+                         loop=self.io_loop,
+                         )
+        msgs = []
+
+        @tornado.gen.coroutine
+        def cb(msg):
+            msgs.append(msg)
+
+        yield nc.subscribe("foo", cb=cb)
+        yield nc.subscribe("bar", cb=cb)
+        yield nc.subscribe("quux", cb=cb)
+
+        with self.assertRaises(ErrBadSubscription):
+            yield nc.drain(sid=4)
+        yield nc.close()
+        self.assertTrue(nc.is_closed)
+
+    @tornado.testing.gen_test
+    def test_drain_single_subscription(self):
+        nc = NATS()
+        yield nc.connect("127.0.0.1:4225", loop=self.io_loop)
+
+        msgs = []
+
+        @tornado.gen.coroutine
+        def handler(msg):
+            msgs.append(msg)
+            if len(msgs) == 10:
+                yield tornado.gen.sleep(0.5)
+
+        sid = yield nc.subscribe("foo", cb=handler)
+
+        for i in range(0, 200):
+            yield nc.publish("foo", b'hi')
+
+            # Relinquish control so that messages are processed.
+            yield tornado.gen.moment
+        yield nc.flush()
+
+        sub = nc._subs[sid]
+        before_drain = sub.pending_queue.qsize()
+        self.assertTrue(before_drain > 0)
+
+        drain_task = yield nc.drain(sid=sid)
+        yield tornado.gen.with_timeout(timedelta(seconds=1), drain_task)
+
+        for i in range(0, 200):
+            yield nc.publish("foo", b'hi')
+
+            # Relinquish control so that messages are processed.
+            yield tornado.gen.moment
+
+        # No more messages should have been processed.
+        after_drain = sub.pending_queue.qsize()
+        self.assertEqual(0, after_drain)
+        self.assertEqual(200, len(msgs))
+
+        yield nc.close()
+        self.assertTrue(nc.is_closed)
+        self.assertFalse(nc.is_connected)
+
+    @tornado.testing.gen_test(timeout=15)
+    def test_drain_connection(self):
+        nc = NATS()
+        errors = []
+        drain_done = tornado.concurrent.Future()
+
+        @tornado.gen.coroutine
+        def error_cb(e):
+            errors.append(e)
+
+        @tornado.gen.coroutine
+        def closed_cb():
+            drain_done.set_result(True)
+
+        yield nc.connect("127.0.0.1:4225",
+                         loop=self.io_loop,
+                         closed_cb=closed_cb,
+                         error_cb=error_cb,
+                         )
+
+        nc2 = NATS()
+        yield nc2.connect("127.0.0.1:4225", loop=self.io_loop)
+
+        msgs = []
+
+        @tornado.gen.coroutine
+        def foo_handler(msg):
+            if len(msgs) % 20 == 1:
+                yield tornado.gen.sleep(0.2)
+            if len(msgs) % 50 == 1:
+                yield tornado.gen.sleep(0.5)
+            if msg.reply != "":
+                yield nc.publish_request(msg.reply, "foo", b'OK!')
+            yield nc.flush()
+
+        @tornado.gen.coroutine
+        def bar_handler(msg):
+            if len(msgs) % 20 == 1:
+                yield tornado.gen.sleep(0.2)
+            if len(msgs) % 50 == 1:
+                yield tornado.gen.sleep(0.5)
+            if msg.reply != "":
+                yield nc.publish_request(msg.reply, "bar", b'OK!')
+            yield nc.flush()
+
+        @tornado.gen.coroutine
+        def quux_handler(msg):
+            if len(msgs) % 20 == 1:
+                yield tornado.gen.sleep(0.2)
+            if len(msgs) % 50 == 1:
+                yield tornado.gen.sleep(0.5)
+            if msg.reply != "":
+                yield nc.publish_request(msg.reply, "quux", b'OK!')
+            yield nc.flush()
+
+        sid_foo = yield nc.subscribe("foo", cb=foo_handler)
+        sid_bar = yield nc.subscribe("bar", cb=bar_handler)
+        sid_quux = yield nc.subscribe("quux", cb=quux_handler)
+
+        @tornado.gen.coroutine
+        def replies(msg):
+            msgs.append(msg)
+
+        yield nc2.subscribe("my-replies.*", cb=replies)
+        for i in range(0, 201):
+            yield nc2.publish_request("foo", "my-replies.AAA", b'help')
+            yield nc2.publish_request("bar", "my-replies.BBB", b'help')
+            yield nc2.publish_request("quux", "my-replies.CCC", b'help')
+
+            # Relinquish control so that messages are processed.
+            yield tornado.gen.moment
+        yield nc2.flush()
+
+        sub_foo = nc._subs[sid_foo]
+        sub_bar = nc._subs[sid_bar]
+        sub_quux = nc._subs[sid_quux]
+        self.assertTrue(sub_foo.pending_queue.qsize() > 0)
+        self.assertTrue(sub_bar.pending_queue.qsize() > 0)
+        self.assertTrue(sub_quux.pending_queue.qsize() > 0)
+
+        # Drain and close the connection. In case of timeout then
+        # an async error will be emitted via the error callback.
+        self.io_loop.spawn_callback(nc.drain)
+
+        # Let the draining task a bit of time to run...
+        yield tornado.gen.sleep(0.5)
+
+        # Subscribe and request cause errors at this point.
+        with self.assertRaises(ErrConnectionDraining):
+            yield nc.subscribe("hello", cb=foo_handler)
+        with self.assertRaises(ErrConnectionDraining):
+            yield nc.request("hello", b"world")
+
+        # Should be no-op or bail if connection closed.
+        yield nc.drain()
+
+        # State should be closed here already,
+        yield tornado.gen.with_timeout(timedelta(seconds=10), drain_done)
+
+        self.assertEqual(sub_foo.pending_queue.qsize(), 0)
+        self.assertEqual(sub_bar.pending_queue.qsize(), 0)
+        self.assertEqual(sub_quux.pending_queue.qsize(), 0)
+        self.assertEqual(0, len(nc._subs.items()))
+        self.assertEqual(1, len(nc2._subs.items()))
+        self.assertTrue(len(msgs) > 599)
+
+        # No need to close first connection since drain reaches
+        # the closed state.
+        yield nc2.close()
+        self.assertTrue(nc.is_closed)
+        self.assertFalse(nc.is_connected)
+        self.assertTrue(nc2.is_closed)
+        self.assertFalse(nc2.is_connected)
+
+    @tornado.testing.gen_test(timeout=15)
+    def test_drain_connection_timeout(self):
+        nc = NATS()
+        errors = []
+        drain_done = tornado.concurrent.Future()
+
+        @tornado.gen.coroutine
+        def error_cb(e):
+            errors.append(e)
+
+        @tornado.gen.coroutine
+        def closed_cb():
+            drain_done.set_result(True)
+
+        yield nc.connect("127.0.0.1:4225",
+                         loop=self.io_loop,
+                         closed_cb=closed_cb,
+                         error_cb=error_cb,
+                         drain_timeout=0.1,
+                         )
+
+        nc2 = NATS()
+        yield nc2.connect("127.0.0.1:4225", loop=self.io_loop)
+
+        msgs = []
+
+        @tornado.gen.coroutine
+        def handler(msg):
+            if len(msgs) % 20 == 1:
+                yield tornado.gen.sleep(0.2)
+            if len(msgs) % 50 == 1:
+                yield tornado.gen.sleep(0.5)
+            if msg.reply != "":
+                yield nc.publish_request(msg.reply, "foo", b'OK!')
+            yield nc.flush()
+        sid_foo = yield nc.subscribe("foo", cb=handler)
+
+        @tornado.gen.coroutine
+        def replies(msg):
+            msgs.append(msg)
+
+        yield nc2.subscribe("my-replies.*", cb=replies)
+        for i in range(0, 201):
+            yield nc2.publish_request("foo", "my-replies.AAA", b'help')
+            yield nc2.publish_request("bar", "my-replies.BBB", b'help')
+            yield nc2.publish_request("quux", "my-replies.CCC", b'help')
+
+            # Relinquish control so that messages are processed.
+            yield tornado.gen.moment
+        yield nc2.flush()
+
+        # Drain and close the connection. In case of timeout then
+        # an async error will be emitted via the error callback.
+        yield nc.drain()
+        self.assertTrue(type(errors[0]) is ErrDrainTimeout)
+
+        # No need to close first connection since drain reaches
+        # the closed state.
+        yield nc2.close()
+        self.assertTrue(nc.is_closed)
+        self.assertFalse(nc.is_connected)
+        self.assertTrue(nc2.is_closed)
+        self.assertFalse(nc2.is_connected)
 
 if __name__ == '__main__':
     runner = unittest.TextTestRunner(stream=sys.stdout)
