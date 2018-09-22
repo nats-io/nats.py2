@@ -1732,6 +1732,44 @@ class ClientAuthTest(tornado.testing.AsyncTestCase):
             self.assertEqual(1, len(c.log.records["foo"]))
 
     @tornado.testing.gen_test(timeout=10)
+    def test_connect_with_auth_token_option(self):
+        nc = NATS()
+
+        conf = """
+        port = 4227
+
+        http = 8227
+
+        authorization {
+          token = token
+        }
+        """
+        with Gnatsd(port=4227, http_port=8227, conf=conf) as gnatsd:
+            yield nc.connect("nats://127.0.0.1:4227",
+                             token='token',
+                             loop=self.io_loop,
+                            )
+            self.assertIn('auth_required', nc._server_info)
+            self.assertTrue(nc.is_connected)
+
+            received = tornado.concurrent.Future()
+
+            @tornado.gen.coroutine
+            def handler(msg):
+                received.set_result(msg)
+
+            yield nc.subscribe("foo", cb=handler)
+            yield nc.flush()
+            yield nc.publish("foo", b'bar')
+
+            yield tornado.gen.with_timeout(
+                timedelta(seconds=1), received)
+            
+            yield nc.close()
+            self.assertTrue(nc.is_closed)
+            self.assertFalse(nc.is_connected)
+
+    @tornado.testing.gen_test(timeout=10)
     def test_close_connection(self):
         nc = Client()
         options = {

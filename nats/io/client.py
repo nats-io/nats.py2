@@ -224,6 +224,9 @@ class Client(object):
                 pedantic=False,
                 verbose=False,
                 no_echo=False,
+                user=None,
+                password=None,
+                token=None,
 
                 # Reconnect logic
                 allow_reconnect=True,
@@ -272,6 +275,9 @@ class Client(object):
         self.options["pedantic"] = pedantic
         self.options["name"] = name
         self.options["no_echo"] = no_echo
+        self.options["user"] = user
+        self.options["password"] = password
+        self.options["token"] = token
         self.options["max_outstanding_pings"] = max_outstanding_pings
         self.options["max_reconnect_attempts"] = max_reconnect_attempts
         self.options["reconnect_time_wait"] = reconnect_time_wait
@@ -395,7 +401,12 @@ class Client(object):
             if self._server_info["auth_required"] == True:
                 # In case there is no password, then consider handle
                 # sending a token instead.
-                if self._current_server.uri.password is None:
+                if self.options["user"] is not None and self.options["password"] is not None:
+                    options["user"] = self.options["user"]
+                    options["pass"] = self.options["password"]
+                elif self.options["token"] is not None:
+                    options["auth_token"] = self.options["token"]
+                elif self._current_server.uri.password is None:
                     options["auth_token"] = self._current_server.uri.username
                 else:
                     options["user"] = self._current_server.uri.username
