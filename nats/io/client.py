@@ -501,8 +501,13 @@ class Client(object):
             result = yield tornado.gen.with_timeout(
                 timedelta(seconds=timeout), future)
         except tornado.gen.TimeoutError:
-            # Set the future to False so it can be ignored in _process_pong.
+            # Set the future to False so it can be ignored in _process_pong,
+            # and try to remove from the list of pending pongs.
             future.set_result(False)
+            for i, pong_future in enumerate(self._pongs):
+                if pong_future == future:
+                    del self._pongs[i]
+                    break
             raise
         raise tornado.gen.Return(result)
 
@@ -849,7 +854,9 @@ class Client(object):
         if len(self._pongs) > 0:
             future = self._pongs.pop(0)
             self._pongs_received += 1
-            self._pings_outstanding -= 1
+            if self._pings_outstanding > 0:
+                self._pings_outstanding -= 1
+
             # Only exit loop if future still running (hasn't exceeded flush timeout).
             if future.running():
                 future.set_result(True)
