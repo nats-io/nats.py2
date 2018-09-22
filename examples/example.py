@@ -54,7 +54,7 @@ def main():
         msg = yield nc.request("help", b"Hi, need help!", timeout=0.2)
         print("[Response]: %s" % msg.data)
     except tornado.gen.TimeoutError:
-        print("Timeout!")
+        print("Response Timeout!")
 
     # Remove interest in subscription.
     yield nc.unsubscribe(sid)
