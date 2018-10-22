@@ -907,7 +907,7 @@ class Client(object):
                     yield self._error_cb(ErrSlowConsumer())
                 raise tornado.gen.Return()
 
-            yield sub.pending_queue.put_nowait(msg)
+            sub.pending_queue.put_nowait(msg)
         except tornado.queues.QueueFull:
             if self._error_cb is not None:
                 yield self._error_cb(ErrSlowConsumer())
