@@ -20,5 +20,5 @@
 - [X] Release on PyPI
 - [X] error, close, disconnected callbacks
 - [X] TLS
+- [X] support async protocol
 - [ ] confirm performance issues handling on larger messages
-- [ ] support async protocol
