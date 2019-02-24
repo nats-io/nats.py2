@@ -323,7 +323,7 @@ class Client(object):
                 self._status = Client.CONNECTING
                 yield self._process_connect_init()
                 break
-            except (socket.error, tornado.iostream.StreamClosedError) as e:
+            except Exception as e:
                 self._status = Client.DISCONNECTED
                 self._err = e
                 if self._error_cb is not None:
@@ -1127,7 +1127,7 @@ class Client(object):
                 self._status = Client.DISCONNECTED
                 yield self.close()
                 break
-            except (socket.error, NatsError, tornado.iostream.StreamClosedError) as e:
+            except Exception as e:
                 self._err = e
                 if self._error_cb is not None:
                     self._error_cb(e)
@@ -1203,7 +1203,7 @@ class Client(object):
                 yield self._server_connect(s)
                 self._current_server = s
                 break
-            except (socket.error, tornado.iostream.StreamClosedError) as e:
+            except Exception as e:
                 s.last_attempt = time.time()
                 s.reconnects += 1
 
