@@ -1082,10 +1082,13 @@ class ClientTest(tornado.testing.AsyncTestCase):
             "read_chunk_size": 10,
             "error_cb": c.error_cb,
             "close_cb": c.close_cb,
-            "disconnected_cb": c.disconnected_cb
+            "disconnected_cb": c.disconnected_cb,
+            "max_reconnect_attempts": 1,
         }
-        with self.assertRaises(tornado.iostream.StreamBufferFullError):
+        with self.assertRaises(ErrNoServers):
             yield c.nc.connect(**options)
+        self.assertEqual(
+            tornado.iostream.StreamBufferFullError, c.nc.last_error().__class__)
         self.assertFalse(c.nc.is_connected)
         self.assertEqual(1024, c.nc._max_read_buffer_size)
         self.assertEqual(50, c.nc._max_write_buffer_size)

@@ -323,6 +323,8 @@ class Client(object):
                 self._status = Client.CONNECTING
                 yield self._process_connect_init()
                 break
+            except ErrNoServers:
+                raise
             except Exception as e:
                 self._status = Client.DISCONNECTED
                 self._err = e
