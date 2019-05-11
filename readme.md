@@ -3,18 +3,15 @@
 A Python async client for the [NATS messaging system](https://nats.io).
 
 [![License Apache 2.0](https://img.shields.io/badge/License-Apache2-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Build Status](https://travis-ci.org/nats-io/python-nats.svg?branch=master)](http://travis-ci.org/nats-io/python-nats)
+[![Build Status](https://travis-ci.org/nats-io/nats.py2.svg?branch=master)](http://travis-ci.org/nats-io/nats.py2)
 [![pypi](https://img.shields.io/pypi/v/nats-client.svg)](https://pypi.org/project/nats-client)
 
 ## Supported platforms
 
-Should be compatible with following versions of [Python](https://www.python.org/)
-using [Tornado 4.2+](https://github.com/tornadoweb/tornado/tree/v4.2.0) (less than 5.0)
-with [gnatsd](https://github.com/nats-io/gnatsd) as the server:
+Should be compatible with [Python 2.7](https://www.python.org/) using
+[Tornado 4.2+](https://github.com/tornadoweb/tornado/tree/v4.2.0) (less than 6.0).
 
-- 2.7.x
-
-For Python 3, check [asyncio-nats](https://github.com/nats-io/asyncio-nats)
+For Python 3, check [nats.py](https://github.com/nats-io/nats.py)
 
 ## Getting Started
 
