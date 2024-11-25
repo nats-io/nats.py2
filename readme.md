@@ -1,3 +1,5 @@
+# Warning: This client has been deprecated. Please use [nats.py](https://github.com/nats-io/nats.py) instead :warning:
+
 # NATS - Tornado based Python 2 Client
 
 A Python async client for the [NATS messaging system](https://nats.io).
